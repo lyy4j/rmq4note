@@ -305,6 +305,8 @@ public class MQClientAPIImpl {
         final DefaultMQProducerImpl producer // 12
     ) throws RemotingException, MQBrokerException, InterruptedException {
         RemotingCommand request = null;
+
+        //sendSmartMsg default value:true,通过缩短参数名称，加快json的解析速度
         if (sendSmartMsg) {
             SendMessageRequestHeaderV2 requestHeaderV2 = SendMessageRequestHeaderV2.createSendMessageRequestHeaderV2(requestHeader);
             request = RemotingCommand.createRequestCommand(RequestCode.SEND_MESSAGE_V2, requestHeaderV2);

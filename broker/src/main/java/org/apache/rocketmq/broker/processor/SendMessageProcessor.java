@@ -70,6 +70,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
                     return null;
                 }
 
+                //默认情况下，mqtraceContext = null;
                 mqtraceContext = buildMsgContext(ctx, requestHeader);
                 this.executeSendMessageHookBefore(ctx, request, mqtraceContext);
                 final RemotingCommand response = this.sendMessage(ctx, request, mqtraceContext, requestHeader);
@@ -337,7 +338,9 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         msgInner.setQueueId(queueIdInt);
         msgInner.setSysFlag(sysFlag);
         msgInner.setBornTimestamp(requestHeader.getBornTimestamp());
+        //生产消息，producer端的address
         msgInner.setBornHost(ctx.channel().remoteAddress());
+        //broker端的address
         msgInner.setStoreHost(this.getStoreHost());
         msgInner.setReconsumeTimes(requestHeader.getReconsumeTimes() == null ? 0 : requestHeader.getReconsumeTimes());
 
@@ -412,6 +415,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
             if (sendOK) {
 
                 //更新broker监控状态
+                //更新broker中的topic StatsItem 加一
                 this.brokerController.getBrokerStatsManager().incTopicPutNums(msgInner.getTopic());
                 this.brokerController.getBrokerStatsManager().incTopicPutSize(msgInner.getTopic(),
                     putMessageResult.getAppendMessageResult().getWroteBytes());

@@ -69,6 +69,7 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
 
     protected SendMessageContext buildMsgContext(ChannelHandlerContext ctx,
         SendMessageRequestHeader requestHeader) {
+        //默认情况下为空
         if (!this.hasSendMessageHook()) {
             return null;
         }
@@ -173,7 +174,7 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
             return response;
         }
 
-
+        //DEFAULT_TOPIC(TBW102)  can't send message
         if (!this.brokerController.getTopicConfigManager().isTopicCanSendMessage(requestHeader.getTopic())) {
             String errorMsg = "the topic[" + requestHeader.getTopic() + "] is conflict with system reserved words.";
             log.warn(errorMsg);
@@ -182,12 +183,17 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
             return response;
         }
 
+        //TopicConfig:
+        // private String topicName;
+        //private int readQueueNums = defaultReadQueueNums(16);
+        // private int writeQueueNums = defaultWriteQueueNums(16);
+        // private int perm = PermName.PERM_READ | PermName.PERM_WRITE;
         //先从本地缓存topicConfigTable 获取，因此，第一次由producer发送的指定的topic还未创建时，必为 空；
-
         TopicConfig topicConfig =
             this.brokerController.getTopicConfigManager().selectTopicConfig(requestHeader.getTopic());
         if (null == topicConfig) {
             int topicSysFlag = 0;
+            //requestHeader.isUnitMode(),default:false
             if (requestHeader.isUnitMode()) {
                 if (requestHeader.getTopic().startsWith(MixAll.RETRY_GROUP_TOPIC_PREFIX)) {
                     topicSysFlag = TopicSysFlag.buildSysFlag(false, true);

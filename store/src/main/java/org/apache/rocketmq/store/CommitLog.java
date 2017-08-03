@@ -1141,7 +1141,7 @@ public class CommitLog {
         public AppendMessageResult doAppend(final long fileFromOffset, final ByteBuffer byteBuffer, final int maxBlank, final MessageExtBrokerInner msgInner) {
             // STORETIMESTAMP + STOREHOSTADDRESS + OFFSET <br> 存储时间 + 存储地址 + 偏移量
 
-            // PHY OFFSET = 文件所在的开始偏移量 + 当前已写入消息的位置
+            // PHY OFFSET(消息的开始写入位置) = 文件所在的开始偏移量 + 当前已写入消息的位置
             long wroteOffset = fileFromOffset + byteBuffer.position();
 
             //hostHolder.length = 8

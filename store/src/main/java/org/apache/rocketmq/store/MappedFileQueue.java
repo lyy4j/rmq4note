@@ -240,7 +240,7 @@ public class MappedFileQueue {
                 + UtilAll.offset2FileName(createOffset + this.mappedFileSize);
             MappedFile mappedFile = null;
 
-            //默认使用异步创建mmap，并尝试预热
+            //默认使用异步创建mmap，并尝试预热，同步等待
             if (this.allocateMappedFileService != null) {
                 //this.mappedFileSize  默认为1G = 1024 * 1024 * 1024 = 1，073，741，824
                 //同步连续创建两个MappedFile

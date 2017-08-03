@@ -66,11 +66,22 @@ import static org.apache.rocketmq.store.config.BrokerRole.SLAVE;
  * 第一类，具体消息的内容，也即客户端产生的消息，由CommitLog （自己维护MappedFileQueue）类委托完成(存放缓冲区commit)，默认路径为：
  *     user_root_path/store/commitlog/
  * 由CommitLog.GroupCommitService 内部类完成定时刷盘
+ * 指定（topic-queueId）的逻辑offset 按顺序有0->n 递增，每producer 发送消息成功，即append一条消息，加1
+ * private HashMap<topic-queueid, offset> CommitLog.topicQueueTable = new HashMap<String, Long>(1024);
+ * topicQueueTable 会在broker启动时调用recoverTopicQueueTable()，根据consumeQueueTable,也即已经构建好消息位置索引的最后一项算出maxOffset，topicQueueTable.put(topic-queueId  ->maxOffset)
+ * 对于消费者来说，可消费的逻辑位移不回大于maxOffset
  *
- * 第二类为具体消息的逻辑位置与物理存放位置的消息（位置索引） 持久化 消息体，即通过topic - queueId - offset 可以获取具体消息的内容，有ConsumeQueue（自己维护MappedFileQueue）
+ *
+ * 第二类为具体消息的逻辑位置与物理存放位置的消息（位置索引） 持久化 消息体，即通过topic - queueId - offset 可以获取具体消息的内容，由ConsumeQueue（自己维护MappedFileQueue）
  * 类委托完成，默认存放路径为：
  *      user_root_path/store/consumequeue/
- * 由ReputMessageService 定时构建消息的位置索引，以及（查询索引）；  由FlushConsumeQueueService 定时刷盘位置索引以及StoreCheckpoint
+ * 内存类为：
+ *     ConcurrentHashMap<topic, ConcurrentHashMap<queueId, ConsumeQueue>> consumeQueueTable 该缓存维护
+ *     consumeQueueTable 属性由FlushConsumeQueueService定时任务定时遍历刷盘
+ * 由ReputMessageService 定时构建消息(放入缓存)的位置索引，以及（查询索引）；  由FlushConsumeQueueService 定时刷盘位置索引以及StoreCheckpoint
+ *
+ *
+ *
  *
  * 第三类为消息查询索引，即通过topic - key （由客户端在生产消息时指定的key）， 可以获取具体消息的内容，由IndexService (自己维护ArrayList<IndexFile>, IndexFile委托MappedFile)
  * 类委托完成，默认存放路径为：
@@ -1266,10 +1277,12 @@ public class DefaultMessageStore implements MessageStore {
 
     private void recoverTopicQueueTable() {
         HashMap<String/* topic-queueid */, Long/* offset */> table = new HashMap<String, Long>(1024);
+        //获取未删除，有效并且最旧的消息的开始位置
         long minPhyOffset = this.commitLog.getMinOffset();
         for (ConcurrentHashMap<Integer, ConsumeQueue> maps : this.consumeQueueTable.values()) {
             for (ConsumeQueue logic : maps.values()) {
                 String key = logic.getTopic() + "-" + logic.getQueueId();
+                //logic.getMaxOffsetInQueue():这里获取当前队列最大的逻辑位移(即已经持久化的最大的位置索引消息)
                 table.put(key, logic.getMaxOffsetInQueue());
                 logic.correctMinOffset(minPhyOffset);
             }
@@ -1708,14 +1721,25 @@ public class DefaultMessageStore implements MessageStore {
             return this.reputFromOffset < DefaultMessageStore.this.commitLog.getMaxOffset();
         }
 
+        /**
+         * reputFromOffset 的初始化值为commitLog.mappedFileQueue.getMaxOffset()，即已最新的已经持久化的那条消息的尾部。
+         *
+         *
+         *
+         *
+         *
+         *
+         */
         private void doReput() {
             for (boolean doNext = true; this.isCommitLogAvailable() && doNext; ) {
-
+                //isDuplicationEnable default:false
                 if (DefaultMessageStore.this.getMessageStoreConfig().isDuplicationEnable() //
                     && this.reputFromOffset >= DefaultMessageStore.this.getConfirmOffset()) {
                     break;
                 }
 
+                //这里获取reputFromOffset所在的MappedFile，区间在[reputFromOffset， MappedFile.end]的所有字节消息，添加
+                //该MappedFile 的持有引用数MappedFile.hold()；
                 SelectMappedBufferResult result = DefaultMessageStore.this.commitLog.getData(reputFromOffset);
                 if (result != null) {
                     try {
@@ -1729,6 +1753,9 @@ public class DefaultMessageStore implements MessageStore {
 
                             if (dispatchRequest.isSuccess()) {
                                 if (size > 0) {
+                                    //dispatchRequest 代表一条消息承载，
+                                    // 1、构建存放该消息的位置索引，并且放入缓存(逻辑offset 以及 物理offset 对应关系)
+                                    // 2、构建构建 消息查询索引，该索引的作用为通过topic 和 key 快速定位具体消息.
                                     DefaultMessageStore.this.doDispatch(dispatchRequest);
 
                                     if (BrokerRole.SLAVE != DefaultMessageStore.this.getMessageStoreConfig().getBrokerRole()
@@ -1768,6 +1795,7 @@ public class DefaultMessageStore implements MessageStore {
                             }
                         }
                     } finally {
+                        //释放MappedFile的引用
                         result.release();
                     }
                 } else {

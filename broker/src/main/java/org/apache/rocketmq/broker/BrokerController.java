@@ -681,19 +681,26 @@ public class BrokerController {
 
         RegisterBrokerResult registerBrokerResult = this.brokerOuterAPI.registerBrokerAll(
             this.brokerConfig.getBrokerClusterName(),
-            this.getBrokerAddr(),
+            this.getBrokerAddr(),   //defalut:(local_ip:8888)
             this.brokerConfig.getBrokerName(),
             this.brokerConfig.getBrokerId(),
-            this.getHAServerAddr(),
+            this.getHAServerAddr(),  //default :(local_ip:10912)
             topicConfigWrapper,
             this.filterServerManager.buildNewFilterServerList(),
             oneway,
             this.brokerConfig.getRegisterBrokerTimeoutMills());
 
+        //如果该broker为master ，则registerBrokerResult.getHaServerAddr()== null && registerBrokerResult.getMasterAddr()
+        //否则registerBrokerResult.getHaServerAddr()和registerBrokerResult.getMasterAddr() 均为master broker  的addr，并且updateMasterHAServerAddrPeriodically = true
+        //这个地址是为了master定期同步消息给slave 通讯用的；
+
+        // 则，broker  拥有 HAServer 以及HAServer的依赖List<HAConnection>
+        //slave 对应HAClient ,HAClient 与HAConncetion一一对应
         if (registerBrokerResult != null) {
             if (this.updateMasterHAServerAddrPeriodically && registerBrokerResult.getHaServerAddr() != null) {
                 this.messageStore.updateHaMasterAddress(registerBrokerResult.getHaServerAddr());
             }
+
 
             this.slaveSynchronize.setMasterAddr(registerBrokerResult.getMasterAddr());
 

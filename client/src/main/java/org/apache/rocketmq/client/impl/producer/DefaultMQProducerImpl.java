@@ -694,7 +694,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                 requestHeader.setFlag(msg.getFlag());
                 requestHeader.setProperties(MessageDecoder.messageProperties2String(msg.getProperties()));
                 requestHeader.setReconsumeTimes(0);
-                requestHeader.setUnitMode(this.isUnitMode());
+                requestHeader.setUnitMode(this.isUnitMode());  //this.isUnitMode() default:false
                 if (requestHeader.getTopic().startsWith(MixAll.RETRY_GROUP_TOPIC_PREFIX)) {
                     String reconsumeTimes = MessageAccessor.getReconsumeTime(msg);
                     if (reconsumeTimes != null) {

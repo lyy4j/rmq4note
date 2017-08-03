@@ -99,6 +99,18 @@ public class RouteInfoManager {
         return topicList.encode();
     }
 
+    /**
+     *
+     * @param clusterName 集群名称
+     * @param brokerAddr 注册的broker 地址（broker_ip:8888）
+     * @param brokerName broker 名称
+     * @param brokerId  broker id (master = 0, no master != 0)
+     * @param haServerAddr  注册的broker ha Server 地址（broker_ip:10912）
+     * @param topicConfigWrapper
+     * @param filterServerList  default:null
+     * @param channel 注册broker  与nameser  的通讯渠道
+     * @return
+     */
     public RegisterBrokerResult registerBroker(
         final String clusterName,
         final String brokerAddr,
