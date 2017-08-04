@@ -69,7 +69,7 @@ import static org.apache.rocketmq.store.config.BrokerRole.SLAVE;
  * 指定（topic-queueId）的逻辑offset 按顺序有0->n 递增，每producer 发送消息成功，即append一条消息，加1
  * private HashMap<topic-queueid, offset> CommitLog.topicQueueTable = new HashMap<String, Long>(1024);
  * topicQueueTable 会在broker启动时调用recoverTopicQueueTable()，根据consumeQueueTable,也即已经构建好消息位置索引的最后一项算出maxOffset，topicQueueTable.put(topic-queueId  ->maxOffset)
- * 对于消费者来说，可消费的逻辑位移不回大于maxOffset
+ * 对于消费者来说，可消费的逻辑位移不会大于maxOffset
  *
  *
  * 第二类为具体消息的逻辑位置与物理存放位置的消息（位置索引） 持久化 消息体，即通过topic - queueId - offset 可以获取具体消息的内容，由ConsumeQueue（自己维护MappedFileQueue）
@@ -78,8 +78,8 @@ import static org.apache.rocketmq.store.config.BrokerRole.SLAVE;
  * 内存类为：
  *     ConcurrentHashMap<topic, ConcurrentHashMap<queueId, ConsumeQueue>> consumeQueueTable 该缓存维护
  *     consumeQueueTable 属性由FlushConsumeQueueService定时任务定时遍历刷盘
- * 由ReputMessageService 定时构建消息(放入缓存)的位置索引，以及（查询索引）；  由FlushConsumeQueueService 定时刷盘位置索引以及StoreCheckpoint
- *
+ * 由ReputMessageService 根据CommitLog maxCommitOffset ，定时构建消息(放入缓存)的位置索引，以及（查询索引）；  由FlushConsumeQueueService 定时刷盘位置索引以及StoreCheckpoint
+ * consumer消费端会根据ConsumeQueue进行消费
  *
  *
  *
@@ -1423,9 +1423,15 @@ public class DefaultMessageStore implements MessageStore {
             int deletePhysicFilesInterval = DefaultMessageStore.this.getMessageStoreConfig().getDeleteCommitLogFilesInterval();
             // 强制销毁 MapedFile 间隔时间  默认为 1000 * 120
             int destroyMapedFileIntervalForcibly = DefaultMessageStore.this.getMessageStoreConfig().getDestroyMapedFileIntervalForcibly();
-            // 回收硬盘存储 ,default is at 4 am
+
+            // 回收硬盘存储 ,default is at 4 am 可以设置  为 03:04:05 ,表示3点，4点，五点都可以回收
             boolean timeup = this.isTimeToDelete();
+
+            //总的来说不管是commitlog(消息存储文件) 或者是consumequeue(消费进度存储文件) 各自所占的磁盘分区空间使用百分比，如果大于75%
+            //则返回isSpaceToDelete = true  ,如果大于85%，就设置cleanImmediately状态位为true
             boolean spacefull = this.isSpaceToDelete();
+
+            //或者发起手动删除也可以
             boolean manualDelete = this.manualDeleteFileSeveralTimes > 0;
 
             //时间到了，或者存储空间比率到了,又或者手动删除次数大于零，都要删除
@@ -1435,6 +1441,7 @@ public class DefaultMessageStore implements MessageStore {
                     this.manualDeleteFileSeveralTimes--;
 
                 //是否立刻删除 cleanFileForciblyEnable == true && cleanImmediately == true;;  getMessageStoreConfig().isCleanFileForciblyEnable()默认为true
+                //cleanImmediately 会在commitlog(消息存储文件) 或者是consumequeue(消费进度存储文件)各自所占的磁盘分区空间使用百分比大于85%设置为true
                 boolean cleanAtOnce = DefaultMessageStore.this.getMessageStoreConfig().isCleanFileForciblyEnable() && this.cleanImmediately;
 
                 log.info("begin to delete before {} hours file. timeup: {} spacefull: {} manualDeleteFileSeveralTimes: {} cleanAtOnce: {}", //
@@ -1446,7 +1453,7 @@ public class DefaultMessageStore implements MessageStore {
 
                 //文件保留时间 1小时
                 fileReservedTime *= 60 * 60 * 1000;
-
+                //删除消息的持久化文件
                 deleteCount = DefaultMessageStore.this.commitLog.deleteExpiredFile(fileReservedTime, deletePhysicFilesInterval,
                     destroyMapedFileIntervalForcibly, cleanAtOnce);
                 if (deleteCount > 0) {
@@ -1485,6 +1492,12 @@ public class DefaultMessageStore implements MessageStore {
             return false;
         }
 
+
+        /**
+         * 总的来说不管是commitlog(消息存储文件) 或者是consumequeue(消费进度存储文件) 各自所占的磁盘分区空间使用百分比，如果大于75%
+         * 则返回isSpaceToDelete = true  ,如果大于85%，就设置cleanImmediately状态位为true
+         * @return
+         */
         private boolean isSpaceToDelete() {
             //硬盘空间占有率10~95， 默认为75
             double ratio = DefaultMessageStore.this.getMessageStoreConfig().getDiskMaxUsedSpaceRatio() / 100.0;
@@ -1494,7 +1507,7 @@ public class DefaultMessageStore implements MessageStore {
             {
                 //获取commitlog 的存储目录 默认为 user.home/store/commitlog
                 String storePathPhysic = DefaultMessageStore.this.getMessageStoreConfig().getStorePathCommitLog();
-                //获取磁盘分区空间使用百分比
+                //获取commitlog磁盘分区空间使用百分比
                 double physicRatio = UtilAll.getDiskPartitionSpaceUsedPercent(storePathPhysic);
                 if (physicRatio > diskSpaceWarningLevelRatio) { //physicRatio  > 磁盘空间警告等级比例 (default = 95)
                     boolean diskok = DefaultMessageStore.this.runningFlags.getAndMakeDiskFull();
@@ -1560,6 +1573,9 @@ public class DefaultMessageStore implements MessageStore {
         }
     }
 
+    /**
+     * 该定时任务主要删除小于commitLog.mappedFileQueue.getFirstMappedFile().getFileFromOffset() 之前构建的consumerqueue 以及index的文件
+     */
     class CleanConsumeQueueService {
         private long lastPhysicalMinOffset = 0;
 
@@ -1578,7 +1594,7 @@ public class DefaultMessageStore implements MessageStore {
             //消费队列物理文件删除间隔 默认为100
             int deleteLogicsFilesInterval = DefaultMessageStore.this.getMessageStoreConfig().getDeleteConsumeQueueFilesInterval();
 
-            //获取 最小 offset = this.mappedFileQueue.getFirstMappedFile().getFileFromOffset()
+            //获取 最小 offset = commitLog.mappedFileQueue.getFirstMappedFile().getFileFromOffset()
             long minOffset = DefaultMessageStore.this.commitLog.getMinOffset();
             if (minOffset > this.lastPhysicalMinOffset) {
                 this.lastPhysicalMinOffset = minOffset;

@@ -141,6 +141,12 @@ public class CommitLog {
         return this.getData(offset, offset == 0);
     }
 
+    /**
+     *
+     * @param offset 消息开始的物理位移
+     * @param returnFirstOnNotFound
+     * @return 返回offset所在的MappedFile 的[offset, n]的全部字节
+     */
     public SelectMappedBufferResult getData(final long offset, final boolean returnFirstOnNotFound) {
         int mappedFileSize = this.defaultMessageStore.getMessageStoreConfig().getMapedFileSizeCommitLog();
         MappedFile mappedFile = this.mappedFileQueue.findMappedFileByOffset(offset, returnFirstOnNotFound);
@@ -473,7 +479,7 @@ public class CommitLog {
             this.mappedFileQueue.setCommittedWhere(processOffset);
             this.mappedFileQueue.truncateDirtyFiles(processOffset);
 
-            // Clear ConsumeQueue redundant data
+            // Clear ConsumeQueue redundant data(清除多余的数据)
             this.defaultMessageStore.truncateDirtyLogicFiles(processOffset);
         }
         // Commitlog case files are deleted

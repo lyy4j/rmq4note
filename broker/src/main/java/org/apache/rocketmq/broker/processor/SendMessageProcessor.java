@@ -422,7 +422,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
                 this.brokerController.getBrokerStatsManager().incBrokerPutNums();
 
                 response.setRemark(null);
-
+                //消息的内存id
                 responseHeader.setMsgId(putMessageResult.getAppendMessageResult().getMsgId());
                 responseHeader.setQueueId(queueIdInt);
                 responseHeader.setQueueOffset(putMessageResult.getAppendMessageResult().getLogicsOffset());

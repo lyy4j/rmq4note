@@ -104,6 +104,7 @@ public class UtilAll {
             cal.get(Calendar.MILLISECOND));
     }
 
+
     public static long computNextMorningTimeMillis() {
         Calendar cal = Calendar.getInstance();
         cal.setTimeInMillis(System.currentTimeMillis());
@@ -505,6 +506,7 @@ public class UtilAll {
 
 
     public static void main(String[] args) {
+        System.out.println(UtilAll.timeMillisToHumanString(System.currentTimeMillis()));
         System.out.println(UtilAll.offset2FileName(1234567891));
     }
 

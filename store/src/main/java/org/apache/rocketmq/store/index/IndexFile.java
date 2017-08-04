@@ -27,6 +27,27 @@ import org.apache.rocketmq.store.MappedFile;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+
+/**
+ *
+ * 一下为IndexFile 索引文件的内存存储结构
+ *
+ *
+ * [0，40) 字节，存放IndexHeader 内容；
+ *
+ * [40, 5000000 * 4(indexNum)），存放消息的哈希索引信息，
+ * 例如，
+ * 一条消息的槽位置为absSlotPos：|key.hashCode() % hashSlotNum|  * hashSlotSize(4) + IndexHeader.INDEX_HEADER_SIZE(40)
+ *  对应的value，最后一次存放该位置的索引个数
+ *
+ * [5000000 * 4,n);该区域存放具体的索引内容，递增存放，每条索引的大小为20字节
+ * 内容为 [消息的key的hash值(4字节),消息的物理位置(8字节),消息的存储时间以及索引文件创建的时间差（秒数,4字节,消息所在的绝对索引位置(4字节)]
+ *
+ *
+ * 每个索引文件最多存放两千万条消息索引
+ *
+ *
+ */
 public class IndexFile {
     private static final Logger log = LoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
     private static int hashSlotSize = 4;
@@ -39,10 +60,23 @@ public class IndexFile {
     private final MappedByteBuffer mappedByteBuffer;
     private final IndexHeader indexHeader;
 
+    /**
+     *
+     * @param fileName userRootPath/index/YYMMDDhhmmss + mmm(毫秒)
+     * @param hashSlotNum default value = 5000000
+     * @param indexNum default value = 5000000 * 4
+     *
+     *  如果IndexFile  在IndexService.indexFileList.isEmpty()空时创建，则 endPhyOffset = endTimestamp = 0;
+     *  否则， endPhyOffset = IndexService.indexFileList.last().endPhyOffset
+     *         endTimestamp = IndexService.indexFileList.last().endTimestamp
+     * @param endPhyOffset
+     * @param endTimestamp
+     * @throws IOException
+     */
     public IndexFile(final String fileName, final int hashSlotNum, final int indexNum,
         final long endPhyOffset, final long endTimestamp) throws IOException {
 
-        //40 + 4 * 5,000,000 + 20 * 4 * 5,000,000 （420,000,040）
+        //fileTotalSize = 40 + (5,000,000[hashSlotNum] * 4[hashSlotSize]) + ((4 * 5,000,000)[indexNum] * 20[indexSize])
         //1G = 1024 * 1024 * 1024 = 1,073,741,824 (10亿级)
         int fileTotalSize =
             IndexHeader.INDEX_HEADER_SIZE + (hashSlotNum * hashSlotSize) + (indexNum * indexSize);
@@ -92,10 +126,21 @@ public class IndexFile {
         return this.mappedFile.destroy(intervalForcibly);
     }
 
+    /**
+     *
+     * @param key 指定的key: topic-uniqueKey
+     * @param phyOffset 消息的持久化物理位移
+     * @param storeTimestamp 消息的存储时间，即消息放进缓存的时间
+     * @return
+     */
     public boolean putKey(final String key, final long phyOffset, final long storeTimestamp) {
         if (this.indexHeader.getIndexCount() < this.indexNum) {
+
             int keyHash = indexKeyHashMethod(key);
+            //hashSlotNum = 5000000
+            //通过简单的hash算法，算出key所在的相对槽位置
             int slotPos = keyHash % this.hashSlotNum;
+            //绝对槽位置 = 40 + slotPos(相对槽位置) * 4(hash槽大小)
             int absSlotPos = IndexHeader.INDEX_HEADER_SIZE + slotPos * hashSlotSize;
 
             FileLock fileLock = null;
@@ -121,15 +166,56 @@ public class IndexFile {
                     timeDiff = 0;
                 }
 
+                //绝对索引位置 = 40(索引头大小) + 5000000(hashSlotNum) * 4(hashSlotSize) + IndexCount(当前已索引条数) * 20(索引大小)
+                //this.indexHeader.getIndexCount() * indexSize 这里保证每条索引实体所存放的位置是递增的
                 int absIndexPos =
                     IndexHeader.INDEX_HEADER_SIZE + this.hashSlotNum * hashSlotSize
                         + this.indexHeader.getIndexCount() * indexSize;
 
+                // start absIndexPos:绝对索引位置
+                // 索引消息的大小（20字节），4(1) + 4(2) + 8(3) + 4(4)
+                //(1):消息的key的hash值，
+                //(2):消息的物理位置
+                //(3):消息的存储时间以及索引文件创建的时间差（秒数）
+                //(4):在相同槽位置中，上一条索引消息所在的逻辑索引，这里是查询的关键，
+                //这里详细梳理一下：
+                //eg:
+                //第一条索引消息的 的情况  ：
+                //1st_index_msg, logicIndex = 1,根据key，散列到slot_2，则1st_index_msg.slotValue = 0(logicIndex)
+                //
+                //第二条索引消息的 的情况  ：
+                //2nd_index_msg, logicIndex = 2,根据key，散列到slot_2，则2nd_index_msg.slotValue = 1(logicIndex)
+                //
+                //第三条索引消息的 的情况  ：
+                //3rd_index_msg, logicIndex = 3,根据key，散列到slot_3，则3rd_index_msg.slotValue = 0(logicIndex)
+                //
+                //第四条索引消息的 的情况  ：
+                //4th_index_msg, logicIndex = 4,根据key，散列到slot_3，则4rd_index_msg.slotValue = 3(logicIndex)
+                //
+                //第五条索引消息的 的情况  ：
+                //5th_index_msg, logicIndex = 5,根据key，散列到slot_2，则5th_index_msg.slotValue = 2(logicIndex)
+                //
+                //这里就达到了一种类似链表的效果：
+                //         _ _ _ _                                                               _ _ _ _
+                //         |slot_2|  ------------------------------------------------------------|slot_3|
+                //         ~~~~|~~~~                                                            ~~~~|~~~
+                // |1st_index_msg,logicIndex=1,preLogicIndex=0|              |3rd_index_msg,logicIndex=3,preLogicIndex=0|
+                //             |                                                       |
+                // |2nd_index_msg,logicIndex=2,preLogicIndex=1|              |4th_index_msg,logicIndex=4,preLogicIndex=3|
+                //             |
+                // |5th_index_msg,logicIndex=5,preLogicIndex=2|
+                //
+                // 也就是说，当客户端需要通过制定的key来查询消息时，先通过散列算法，把key所在的slot槽值给算出
+                // 例如，还是到absSlotPos = slot_2, 获取的值为 logicIndex = 5
+                // 然后通过logicIndex 算出absIndexPos，即索引所在的绝对存储位置，分别获取phyOffset(具体消息的物理位置)，以及preLogicIndex
+                // 然后在通过preLogicIndex 按照上述步骤找出具体的索引消息，直到preLogicIndex=0 为止。
+                //
+                //
                 this.mappedByteBuffer.putInt(absIndexPos, keyHash);
                 this.mappedByteBuffer.putLong(absIndexPos + 4, phyOffset);
                 this.mappedByteBuffer.putInt(absIndexPos + 4 + 8, (int) timeDiff);
                 this.mappedByteBuffer.putInt(absIndexPos + 4 + 8 + 4, slotValue);
-
+                //absSlotPos:绝对槽位置
                 this.mappedByteBuffer.putInt(absSlotPos, this.indexHeader.getIndexCount());
 
                 if (this.indexHeader.getIndexCount() <= 1) {
@@ -137,9 +223,13 @@ public class IndexFile {
                     this.indexHeader.setBeginTimestamp(storeTimestamp);
                 }
 
+                //散列 槽 +1
                 this.indexHeader.incHashSlotCount();
+                //索引个数+1
                 this.indexHeader.incIndexCount();
+                //更新索引头文件的尾部 消息物理位置，
                 this.indexHeader.setEndPhyOffset(phyOffset);
+                //更新索引头文件的尾部 消息存储时间，
                 this.indexHeader.setEndTimestamp(storeTimestamp);
 
                 return true;

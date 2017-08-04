@@ -168,7 +168,7 @@ public class IndexService {
      * @param maxNum 最大消息数
      * @param begin 开始时间戳
      * @param end 结束时间戳
-     * @return
+     * @return 符合查询条件的消息的物理位移集合
      */
     public QueryOffsetResult queryOffset(String topic, String key, int maxNum, long begin, long end) {
         List<Long> phyOffsets = new ArrayList<Long>(maxNum);
@@ -179,6 +179,7 @@ public class IndexService {
         try {
             this.readWriteLock.readLock().lock();
             if (!this.indexFileList.isEmpty()) {
+                //倒序遍历所有的索引文件
                 for (int i = this.indexFileList.size(); i > 0; i--) {
                     IndexFile f = this.indexFileList.get(i - 1);
                     boolean lastFile = i == this.indexFileList.size();
@@ -222,6 +223,7 @@ public class IndexService {
             String topic = msg.getTopic();
             //客户端指定的keys，
             String keys = msg.getKeys();
+            //msg.getCommitLogOffset()指该消息的开始存放物理位置,说明已经为该消息构建过索引了
             if (msg.getCommitLogOffset() < endPhyOffset) {
                 return;
             }
@@ -236,6 +238,9 @@ public class IndexService {
                     return;
             }
 
+
+
+            //如果在producer客户端指定了uniqKey,则为该topic-uniqKey 构建索引
             if (req.getUniqKey() != null) {
                 indexFile = putKey(indexFile, msg, buildKey(topic, req.getUniqKey()));
                 if (indexFile == null) {
@@ -243,7 +248,7 @@ public class IndexService {
                     return;
                 }
             }
-
+            //为多个key构建索引
             if (keys != null && keys.length() > 0) {
                 String[] keyset = keys.split(MessageConst.KEY_SEPARATOR);
                 for (int i = 0; i < keyset.length; i++) {
@@ -330,9 +335,12 @@ public class IndexService {
 
         if (indexFile == null) {
             try {
+                //UtilAll.timeMillisToHumanString(System.currentTimeMillis()) = yyyyMMddhhmmss + mmm(毫秒)
                 String fileName =
                     this.storePath + File.separator
                         + UtilAll.timeMillisToHumanString(System.currentTimeMillis());
+
+                //hashSlotNum =
                 indexFile =
                     new IndexFile(fileName, this.hashSlotNum, this.indexNum, lastUpdateEndPhyOffset,
                         lastUpdateIndexTimestamp);
@@ -344,6 +352,7 @@ public class IndexService {
                 this.readWriteLock.writeLock().unlock();
             }
 
+            //这里的意思为，直到上一个indexFile 满了以后，才开线程异步刷盘
             if (indexFile != null) {
                 final IndexFile flushThisFile = prevIndexFile;
                 Thread flushThread = new Thread(new Runnable() {

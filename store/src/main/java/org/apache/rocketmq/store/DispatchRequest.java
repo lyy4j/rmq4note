@@ -25,7 +25,7 @@ public class DispatchRequest {
     private final long tagsCode;
     private final long storeTimestamp;
 
-    //逻辑位移
+    //逻辑位移，该值为commitLog c存放消息时，递增的逻辑位移
     private final long consumeQueueOffset;
     private final String keys;
     private final boolean success;

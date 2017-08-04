@@ -27,10 +27,19 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class IndexHeader {
     public static final int INDEX_HEADER_SIZE = 40;
+
+
+    //表示该索引文件 第一个构建索引的 消息 的存储物理时间(存放于缓存中)
     private static int beginTimestampIndex = 0;
+    //表示该索引文件 最后一个构建索引的 消息 的存储物理时间(存放于缓存中)
     private static int endTimestampIndex = 8;
+    //表示该索引文件 第一个构建索引的 消息 的存储物理地址
     private static int beginPhyoffsetIndex = 16;
+    //表示该索引文件 最一个构建索引的 消息 的存储物理地址
     private static int endPhyoffsetIndex = 24;
+
+    //应为消息是存储顺序来构建索引的，所以，消息的索引存储顺序也是递增的
+
     private static int hashSlotcountIndex = 32;
     private static int indexCountIndex = 36;
     private final ByteBuffer byteBuffer;
