@@ -388,9 +388,14 @@ public class ConsumeQueue {
         if (mappedFile != null) {
 
             if (mappedFile.isFirstCreateInQueue() && cqOffset != 0 && mappedFile.getWrotePosition() == 0) {
+                //代码走到这里，表明该mappedFile是mappedFileQueue 的第一个内存映射文件，cqOffset!=0表明consumer offset不是第一个，即前面有清除过期的mappedFile
+                //mappedFile.getWrotePosition() = 0说明是第一个写入该内存映射文件的位置索引消息，因此该consumeQueue.minLogicOffset = expectLogicOffset;
                 this.minLogicOffset = expectLogicOffset;
+                //重新设置刷盘位置以及写入缓存的位置
                 this.mappedFileQueue.setFlushedWhere(expectLogicOffset);
                 this.mappedFileQueue.setCommittedWhere(expectLogicOffset);
+
+                //expectLogicOffset经过对MappedFileSize(1G)取模的值 表明该位置索引在该mappedFile的位置，所以需要填充前面的空位
                 this.fillPreBlank(mappedFile, expectLogicOffset);
                 log.info("fill pre blank space " + mappedFile.getFileName() + " " + expectLogicOffset + " "
                     + mappedFile.getWrotePosition());
@@ -428,11 +433,13 @@ public class ConsumeQueue {
     }
 
     public SelectMappedBufferResult getIndexBuffer(final long startIndex) {
+        //300000 * 20 ,即每一个mappedFile存放30万条位置索引消息
         int mappedFileSize = this.mappedFileSize;
         long offset = startIndex * CQ_STORE_UNIT_SIZE;
         if (offset >= this.getMinLogicOffset()) {
             MappedFile mappedFile = this.mappedFileQueue.findMappedFileByOffset(offset);
             if (mappedFile != null) {
+
                 SelectMappedBufferResult result = mappedFile.selectMappedBuffer((int) (offset % mappedFileSize));
                 return result;
             }

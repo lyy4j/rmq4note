@@ -371,7 +371,7 @@ public class MappedFileQueue {
 
     /**
      * fileReservedTime *= ;
-     * @param expiredTime 过期时间 60 * 60 * 1000
+     * @param expiredTime 过期时间 60 * 60 * 1000 *72
      * @param deleteFilesInterval  删除物理文件的时间间隔  默认为100
      * @param intervalForcibly  强制销毁 MapedFile 间隔时间  默认为 1000 * 120
      * @param cleanImmediately  是否立刻销毁 时间到了或者空间 存储到达条件则为true
@@ -393,7 +393,7 @@ public class MappedFileQueue {
         if (null != mfs) {
             for (int i = 0; i < mfsLength; i++) {
                 MappedFile mappedFile = (MappedFile) mfs[i];
-                //存活最大时间戳 = 文件最后一次修改的时间戳 + 60 * 60 * 1000(一小时)
+                //存活最大时间戳 = 文件最后一次修改的时间戳(创建时间) + 60 * 60 * 1000 * 72(72小时)
                 long liveMaxTimestamp = mappedFile.getLastModifiedTimestamp() + expiredTime;
                 //如果当前系统时间  > 存活最大时间戳 或者立刻清除标志位为true
                 if (System.currentTimeMillis() >= liveMaxTimestamp || cleanImmediately) {

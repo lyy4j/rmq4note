@@ -201,6 +201,8 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             responseHeader.setMinOffset(getMessageResult.getMinOffset());
             responseHeader.setMaxOffset(getMessageResult.getMaxOffset());
 
+            //如果该consumer消费进度过于落后(即消费最大的消息的物理位移与已提交消息的最大的物理位移相差超过总存储的40%)，
+            //则建议该消费者重slave消费，默认为brokerID 为1的消费者
             if (getMessageResult.isSuggestPullingFromSlave()) {
                 responseHeader.setSuggestWhichBrokerId(subscriptionGroupConfig.getWhichBrokerWhenConsumeSlowly());
             } else {

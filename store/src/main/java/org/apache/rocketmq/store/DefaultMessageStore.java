@@ -451,7 +451,7 @@ public class DefaultMessageStore implements MessageStore {
                     nextBeginOffset = nextOffsetCorrection(offset, maxOffset);
                 }
             } else {
-
+                //获取该索引位置之后的消息字节，这里有可能获取多个  位置索引消息（20字节一个）
                 SelectMappedBufferResult bufferConsumeQueue = consumeQueue.getIndexBuffer(offset);
                 if (bufferConsumeQueue != null) {
                     try {
@@ -462,12 +462,14 @@ public class DefaultMessageStore implements MessageStore {
 
                         int i = 0;
                         final int maxFilterMessageCount = 16000;
+                        //default:true
                         final boolean diskFallRecorded = this.messageStoreConfig.isDiskFallRecorded();
                         for (; i < bufferConsumeQueue.getSize() && i < maxFilterMessageCount; i += ConsumeQueue.CQ_STORE_UNIT_SIZE) {
                             long offsetPy = bufferConsumeQueue.getByteBuffer().getLong();
                             int sizePy = bufferConsumeQueue.getByteBuffer().getInt();
                             long tagsCode = bufferConsumeQueue.getByteBuffer().getLong();
 
+                            //已经获取的最大的具体消息的物理位移
                             maxPhyOffsetPulling = offsetPy;
 
                             if (nextPhyFileStartOffset != Long.MIN_VALUE) {
@@ -475,6 +477,8 @@ public class DefaultMessageStore implements MessageStore {
                                     continue;
                             }
 
+                            //这里表明如果当前查询出的具体消息的物理位移落后于已CommitLog的maxOffsetPy即最大已提交到缓存的消息物理位移
+                            //总内存的40%，则表明该消息时在磁盘中
                             boolean isInDisk = checkInDiskByCommitOffset(offsetPy, maxOffsetPy);
 
                             if (this.isTheBatchFull(sizePy, maxMsgNums, getResult.getBufferTotalSize(), getResult.getMessageCount(),
@@ -507,6 +511,7 @@ public class DefaultMessageStore implements MessageStore {
                             }
                         }
 
+                        //记录消费进度，即当前消费的消息与缓存commit最大的消息的物理差值
                         if (diskFallRecorded) {
                             long fallBehind = maxOffsetPy - maxPhyOffsetPulling;
                             brokerStatsManager.recordDiskFallBehindSize(group, topic, queueId, fallBehind);
@@ -1092,18 +1097,20 @@ public class DefaultMessageStore implements MessageStore {
         }
 
         if (isInDisk) {
+            //如果当前已获取的总消息大小大于1024 * 64,则停止获取
             if ((bufferTotal + sizePy) > this.messageStoreConfig.getMaxTransferBytesOnMessageInDisk()) {
                 return true;
             }
-
+            //MaxTransferCountOnMessageInDisk : 8
             if ((messageTotal + 1) > this.messageStoreConfig.getMaxTransferCountOnMessageInDisk()) {
                 return true;
             }
         } else {
+            //如果当前已获取的总消息大小大于1024 * 256
             if ((bufferTotal + sizePy) > this.messageStoreConfig.getMaxTransferBytesOnMessageInMemory()) {
                 return true;
             }
-
+            //MaxTransferBytesOnMessageInMemory:32
             if ((messageTotal + 1) > this.messageStoreConfig.getMaxTransferCountOnMessageInMemory()) {
                 return true;
             }
