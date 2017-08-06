@@ -233,6 +233,7 @@ public abstract class RebalanceImpl {
      * @param isOrder
      */
     public void doRebalance(final boolean isOrder) {
+        //该值由consumer客户端subscribe("test_topic", "*"),初始化显示订阅主题时，设置的值
         Map<String, SubscriptionData> subTable = this.getSubscriptionInner();
         if (subTable != null) {
             //遍历所有的topic
@@ -357,6 +358,13 @@ public abstract class RebalanceImpl {
         }
     }
 
+    /**
+     *
+     * @param topic
+     * @param mqSet 该mqSet 是最新的mqSet集合
+     * @param isOrder
+     * @return
+     */
     private boolean updateProcessQueueTableInRebalance(final String topic, final Set<MessageQueue> mqSet, final boolean isOrder) {
         boolean changed = false;
 

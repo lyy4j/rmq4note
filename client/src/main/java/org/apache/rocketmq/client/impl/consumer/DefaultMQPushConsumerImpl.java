@@ -313,6 +313,8 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                                 DefaultMQPushConsumerImpl.this.getConsumerStatsManager().incPullTPS(pullRequest.getConsumerGroup(),
                                     pullRequest.getMessageQueue().getTopic(), pullResult.getMsgFoundList().size());
 
+                                //该标志位仅仅作用于顺序消费，如果如果processQueue没有正在处理的消息，也就是
+                                //上一次拉取的消息已经消费完，则为true
                                 boolean dispathToConsume = processQueue.putMessage(pullResult.getMsgFoundList());
                                 DefaultMQPushConsumerImpl.this.consumeMessageService.submitConsumeRequest(//
                                     pullResult.getMsgFoundList(), //
@@ -659,7 +661,8 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
         }
 
 
-        //通过topic 从nameser 获取TopicRoute 消息，并更新
+        //通过topic 从nameser 获取TopicRoute 消息，并更新DefaultMQPushConsumerImpl.RebalanceImpl.topicSubscribeInfoTable
+        //topicSubscribeInfoTable这个属性会在RebalanceImpl重负载时用上。
         this.updateTopicSubscribeInfoWhenSubscriptionChanged();
 
         ////向集群内所有的master发送心跳包  and  向broker上传所有Filter的源字节码，仅仅在PUSH模式下的消费者客户端才生效

@@ -40,6 +40,7 @@ public class RebalanceService extends ServiceThread {
         log.info(this.getServiceName() + " service started");
 
         while (!this.isStopped()) {
+            //每20秒执行一次重负载
             this.waitForRunning(waitInterval);
             this.mqClientFactory.doRebalance();
         }

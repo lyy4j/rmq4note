@@ -53,8 +53,15 @@ public class ClientHousekeepingService implements ChannelEventListener {
     }
 
     private void scanExceptionChannel() {
+        //关闭所有producer端不活跃的连接，判断标准，上次请求时间与当前时间相差超过120秒
+        //并从BrokerController.ProducerManager.groupChannelTable缓存中删除相对应得连接信息
         this.brokerController.getProducerManager().scanNotActiveChannel();
+
+        //关闭所有consumer端不活跃的连接，判断标准，上次请求时间与当前时间相差超过120秒
+        //并从BrokerController.ConsumerManager.consumerTable缓存中删除相对应得连接信息
         this.brokerController.getConsumerManager().scanNotActiveChannel();
+
+
         this.brokerController.getFilterServerManager().scanNotActiveChannel();
     }
 

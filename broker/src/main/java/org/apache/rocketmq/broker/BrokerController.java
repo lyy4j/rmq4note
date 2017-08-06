@@ -94,21 +94,63 @@ public class BrokerController {
     private final NettyServerConfig nettyServerConfig;
     private final NettyClientConfig nettyClientConfig;
     private final MessageStoreConfig messageStoreConfig;
+
+    /**
+     * 消费者 消费进度管理器(针对cluster模式的消费者)
+     */
     private final ConsumerOffsetManager consumerOffsetManager;
+
+    /**
+     * 消费者 长连接管理器
+     */
     private final ConsumerManager consumerManager;
+
+    /**
+     * 生产者 长连接管理器
+     */
     private final ProducerManager producerManager;
-    //移除不活跃的连接定时任务
+    /**
+     * 移除不活跃的连接定时任务(包括所有的consumer端和producer端)
+     */
     private final ClientHousekeepingService clientHousekeepingService;
+
+    /**
+     * conusmer 端发起拉取消息请求的委托处理器
+     */
     private final PullMessageProcessor pullMessageProcessor;
+
+
     private final PullRequestHoldService pullRequestHoldService;
     private final MessageArrivingListener messageArrivingListener;
+
+    /**
+     * 由broker向client发起请求的委托处理器
+     */
     private final Broker2Client broker2Client;
+
+
     private final SubscriptionGroupManager subscriptionGroupManager;
+
+    /**
+     * 该监听器的作用是，当某个consumer端主动shutdown掉自己的线程后，
+     * 回向broker发起UNREGISTER_CLIENT指令，让broker主动移除发起指令的consumer端的
+     * 长连接，并且向未断开连接的所有consumer端广播当前活跃的consumer列表，当
+     * 别的consumer端收到该通知后，consumer端会根据cidList,以及queueList 进行
+     * 重负载分配队列
+     */
     private final ConsumerIdsChangeListener consumerIdsChangeListener;
     private final RebalanceLockManager rebalanceLockManager = new RebalanceLockManager();
     private final BrokerOuterAPI brokerOuterAPI;
     private final ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor(new ThreadFactoryImpl(
         "BrokerControllerScheduledThread"));
+
+    /**
+     * 该slave同步器仅在当前broker为slave时生效作用是，定时向master同步一下信息：
+     * TopicConfig
+     * ConsumerOffset;
+     * DelayOffset;
+     * SubscriptionGroupConfig;
+     */
     private final SlaveSynchronize slaveSynchronize;
     private final BlockingQueue<Runnable> sendThreadPoolQueue;
     private final BlockingQueue<Runnable> pullThreadPoolQueue;
