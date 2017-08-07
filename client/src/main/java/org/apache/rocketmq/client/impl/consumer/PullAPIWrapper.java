@@ -160,6 +160,7 @@ public class PullAPIWrapper {
         if (findBrokerResult != null) {
             int sysFlagInner = sysFlag;
 
+            //如果获取回来的broker是slave的话，则无需commit
             if (findBrokerResult.isSlave()) {
                 sysFlagInner = PullSysFlag.clearCommitOffsetFlag(sysFlagInner);
             }

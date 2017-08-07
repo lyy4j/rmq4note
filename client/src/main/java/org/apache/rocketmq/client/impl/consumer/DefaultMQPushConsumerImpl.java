@@ -230,7 +230,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
 
 
         //这里，如果拉取的消息数大于pullThresholdForQueue(default value:1000),即消费缓存已满，
-        //则延后执行拉取请求，直接返回，防止拉取速度过快，消费过慢
+        //则延后执行拉取请求，防止拉取速度过快，消费过慢,延时消费
         long size = processQueue.getMsgCount().get();
         if (size > this.defaultMQPushConsumer.getPullThresholdForQueue()) {
             this.executePullRequestLater(pullRequest, PULL_TIME_DELAY_MILLS_WHEN_FLOW_CONTROL);
@@ -417,6 +417,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
             classFilter = sd.isClassFilterMode();
         }
 
+        //系统标志位，default:commitOffsetEnable=true,suspend=true,subscription=true,classFilter=false,
         int sysFlag = PullSysFlag.buildSysFlag(//
             commitOffsetEnable, // commitOffset
             true, // suspend

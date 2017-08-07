@@ -114,10 +114,14 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             return response;
         }
 
+        //延时标志，客户端设置为true
         final boolean hasSuspendFlag = PullSysFlag.hasSuspendFlag(requestHeader.getSysFlag());
+        //commmit标志，客户端设置为true
         final boolean hasCommitOffsetFlag = PullSysFlag.hasCommitOffsetFlag(requestHeader.getSysFlag());
+        //订阅标志，客户端设置为true
         final boolean hasSubscriptionFlag = PullSysFlag.hasSubscriptionFlag(requestHeader.getSysFlag());
 
+        //客户端设置的default value:1000 * 15(15秒)
         final long suspendTimeoutMillisLong = hasSuspendFlag ? requestHeader.getSuspendTimeoutMillis() : 0;
 
         TopicConfig topicConfig = this.brokerController.getTopicConfigManager().selectTopicConfig(requestHeader.getTopic());
@@ -423,13 +427,17 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             response.setRemark("store getMessage return null");
         }
 
+        //true,common pull request
         boolean storeOffsetEnable = brokerAllowSuspend;
+        //true
         storeOffsetEnable = storeOffsetEnable && hasCommitOffsetFlag;
+        //true
         storeOffsetEnable = storeOffsetEnable
             && this.brokerController.getMessageStoreConfig().getBrokerRole() != BrokerRole.SLAVE;
 
         //如果允许store offset 则commit offset ，注意offset只是放在ConsumerOffsetManager.offsetTable（ConcurrentHashMap<topic@group, ConcurrentHashMap<queueId, offset>>）
         //缓存里，并没有真正持久化到硬盘，是由定时器任务异步刷盘。
+        //requestHeader.getCommitOffset() 为客户端认为消费成功，并且可以commit的最大offset，即offset以下的消息都是已经被消费的
         if (storeOffsetEnable) {
             this.brokerController.getConsumerOffsetManager().commitOffset(RemotingHelper.parseChannelRemoteAddr(channel),
                 requestHeader.getConsumerGroup(), requestHeader.getTopic(), requestHeader.getQueueId(), requestHeader.getCommitOffset());
