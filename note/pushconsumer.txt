@@ -9,3 +9,11 @@
 	如果是pull模式，则重0开始，即重broker 的最小offset开始消费。
 	如果是push模式，如果设置的ConsumeFromWhere是一下几种模式：CONSUME_FROM_LAST_OFFSET_AND_FROM_MIN_WHEN_BOOT_FIRST、CONSUME_FROM_MIN_OFFSET、CONSUME_FROM_MAX_OFFSET、CONSUME_FROM_LAST_OFFSET等模式，则走一下处理：
 	先从BrokerController.ConsumerOffsetManager.offsetTable 缓存，根据topic@group 获取最新可消费的logic offset；如果查询异常，或不存在，则返回-1，这时，在通过ConsumeQueue获取max logic offset，如果还查询不到则返回0。这里有可能会有一种情况出现，就是当broker启动时，由于ConsumeQueue是异步重新加载恢复的，这时后可能consumer端会向该broker发起消费请求，但ConsumeQueue还没加载完成，导致返回0，这时，consumer端会可能从头消费一遍该消息队列。
+
+
+
+3、Cluster 模式，PushConsumer 拉取消息然后commit消息流程：
+	公共流程：
+	首先，对批量拉取回来的消息进行反序列化，然后在过滤掉不包含本consumer端所指定tag的消息。
+	然后，拉取回来的消息，根据offset，进行排序。接着将详细委托ConsumeMessageService类进行异步消费
+	3.1并发消费(ConsumeMessageConcurrentlyService)：
