@@ -279,7 +279,9 @@ public abstract class NettyRemotingAbstract {
             //step 2->channel.writeAndFlush(request),正真发起网络请求
             //这里使用了netty 的ChannelFutureListener也就是响应结果回调处理，这里使用了闭包的方式实现
             channel.writeAndFlush(request).addListener(new ChannelFutureListener() {
-                //step 4-> 收取响应结果
+                //step 3-> 注册发送消息结果，返回true，则说明发送消息成功了。
+                //但任然需要等待响应。注册该监听器，是为了避免发送失败，但客户端任然在等待，
+                //直到超时的情况，否则，如果短时间内被调用方不可用，就会导致大量线程在闲置等待响应结果。
                 @Override
                 public void operationComplete(ChannelFuture f) throws Exception {
                     if (f.isSuccess()) {
@@ -291,13 +293,13 @@ public abstract class NettyRemotingAbstract {
 
                     responseTable.remove(opaque);
                     responseFuture.setCause(f.cause());
-                    //step ->5 解除同步等待远程调用的阻塞
+
                     responseFuture.putResponse(null);
                     PLOG.warn("send a request command to channel <" + addr + "> failed.");
                 }
             });
 
-            //step 3->responseFuture.waitResponse，这里同步等待远程调用的响应结果
+            //step 4->responseFuture.waitResponse，这里同步等待远程调用的响应结果
             RemotingCommand responseCommand = responseFuture.waitResponse(timeoutMillis);
             if (null == responseCommand) {
                 if (responseFuture.isSendRequestOK()) {

@@ -186,6 +186,13 @@ public class RemotingCommand {
         return SerializeType.valueOf((byte) ((source >> 24) & 0xFF));
     }
 
+    public static void main(String[] args) {
+        System.out.println(Integer.toBinaryString(0xFF));
+        System.out.println(Integer.toBinaryString(16777217 >> 24));
+        System.out.println(Integer.toBinaryString((byte) ((16777217 >> 24) & 0xFF)));
+
+    }
+
     public static int createNewRequestId() {
         return requestId.incrementAndGet();
     }
@@ -216,6 +223,7 @@ public class RemotingCommand {
         result[3] = (byte) (source & 0xFF);
         return result;
     }
+
 
     public void markResponseType() {
         int bits = 1 << RPC_TYPE;
