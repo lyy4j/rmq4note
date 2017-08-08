@@ -411,6 +411,7 @@ public class ConsumeMessageOrderlyService implements ConsumeMessageService {
                 if (MessageModel.BROADCASTING.equals(ConsumeMessageOrderlyService.this.defaultMQPushConsumerImpl.messageModel())
                     || (this.processQueue.isLocked() && !this.processQueue.isLockExpired())) {
                     final long beginTime = System.currentTimeMillis();
+                    //这里会不断消费，
                     for (boolean continueConsume = true; continueConsume; ) {
                         //该队列被移除，跳出处理
                         if (this.processQueue.isDropped()) {

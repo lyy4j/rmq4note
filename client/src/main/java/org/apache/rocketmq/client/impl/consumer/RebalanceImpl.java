@@ -136,7 +136,7 @@ public abstract class RebalanceImpl {
     }
 
     /**
-     * 锁定指定mq
+     * 向broker发出锁mq指令
      * @param mq
      * @return
      */

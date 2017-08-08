@@ -262,13 +262,24 @@ public abstract class NettyRemotingAbstract {
 
     public RemotingCommand invokeSyncImpl(final Channel channel, final RemotingCommand request, final long timeoutMillis)
         throws InterruptedException, RemotingSendRequestException, RemotingTimeoutException {
+        //获取请求标识，该标识在RemotingCommand 创建时，便经过 int opaque = requestId.getAndIncrement()生成。
+        //而RemotingCommand.requestId = new AtomicInteger(0) ，该属性是属于RemotingCommand的类属性，并且getAndIncrement是线程安全的，
+        //所以，在RemotingCommand 创建实例变量时，便可以生成一个唯一的opaque标识了。
         final int opaque = request.getOpaque();
 
         try {
+            //rmq使用CountDownLatch实现了同步调用的Future模式
             final ResponseFuture responseFuture = new ResponseFuture(opaque, timeoutMillis, null, null);
+
+            //step 1->responseTable.put
+            //放入响应缓存里，key为opaque，可以以responseFuture一一对应
             this.responseTable.put(opaque, responseFuture);
             final SocketAddress addr = channel.remoteAddress();
+
+            //step 2->channel.writeAndFlush(request),正真发起网络请求
+            //这里使用了netty 的ChannelFutureListener也就是响应结果回调处理，这里使用了闭包的方式实现
             channel.writeAndFlush(request).addListener(new ChannelFutureListener() {
+                //step 4-> 收取响应结果
                 @Override
                 public void operationComplete(ChannelFuture f) throws Exception {
                     if (f.isSuccess()) {
@@ -280,11 +291,13 @@ public abstract class NettyRemotingAbstract {
 
                     responseTable.remove(opaque);
                     responseFuture.setCause(f.cause());
+                    //step ->5 解除同步等待远程调用的阻塞
                     responseFuture.putResponse(null);
                     PLOG.warn("send a request command to channel <" + addr + "> failed.");
                 }
             });
 
+            //step 3->responseFuture.waitResponse，这里同步等待远程调用的响应结果
             RemotingCommand responseCommand = responseFuture.waitResponse(timeoutMillis);
             if (null == responseCommand) {
                 if (responseFuture.isSendRequestOK()) {
@@ -294,9 +307,9 @@ public abstract class NettyRemotingAbstract {
                     throw new RemotingSendRequestException(RemotingHelper.parseSocketAddressAddr(addr), responseFuture.getCause());
                 }
             }
-
             return responseCommand;
         } finally {
+            //这里是为了处理等待超时，我们任然需要移除该次请求。
             this.responseTable.remove(opaque);
         }
     }

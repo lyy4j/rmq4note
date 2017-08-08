@@ -29,13 +29,25 @@ consumer端会向该broker发起消费请求，但ConsumeQueue还没加载完成
 		消息会更具客户端设置的consumeBatchSize(默认为1)，并发消费批量的消息，执行用户自定义的逻辑后，统计返回消息的成功数，然后将不成功的消息重新发送回
 broker，放入消息头，使消息可以重新消费，发送消息明确成功以后，会返回成功，当客户单收到明确成功以后，会认为该消息消费成功，然后在将消费失败，并且发送broker失败
 的消息延时消费，根据消费成功的消息，算出最小可commit的消息位移，最后在想本地队列commit缓存更新最新可提交的offset，在由定时器定时向broker发出commit请求。
-		这里详细分析一下上述内容，以及我们的使用技巧；这里，根据我们的假设的场景，在结合分析。
+		这里详细分析一下上述内容，以及我们的使用技巧,根据我们的假设的场景，在结合分析。
 		例如，根据PullRequest，我们一次拉回来6条消息,然后将拉取回来的消息放入一个ProcessQueue.msgTreeMap，这是一颗红黑树，按照拉取回来的消息的offset进
 行排序，用读写锁保证并发安全，这里我们根据offset排一下消息的序列[1,2,3,4,5,6]，则ProcessQueue.queueOffsetMax = 6;consumeBatchSize的值我们设置了3，也就是说,分别
 有两个线程,分别Thread1消费[1,2,3] 和Thread2消费[4,5,6]，接下来就是我们客户端如何使用分析，在Thread1中，我们遍历消费（1,2,3）这三条消息，并执行我们客户端的逻辑
-，假如，我们在执行第一条消息成功了，ConsumeConcurrentlyContext.ackIndex该属性应该+1变成1，该属性的意义是前ackIndex条消息都是消费成功的，然后执行第二条消息时由
-于用户代码失败了，这里失败分两个情况，第一个是直接抛出异常，我们没有捕捉；另外一种就是我们自己明确返回CONSUME_SUCCESS，如果我们设置了ackIndex，两种情况其实是一
+，假如，我们在执行第一条消息成功了，ConsumeConcurrentlyContext.ackIndex(初始化为0)该属性应该+1变成1，该属性的意义是表明这次批量消费的消息集合的前ackIndex条消息都是消费成功的，然后执行第二条消息时由
+于执行用户代码失败了，这里失败有两个情况，第一个是直接抛出异常，用户没有捕捉；另外一种就是我们自己明确返回CONSUME_SUCCESS，如果我们设置了ackIndex，两种情况其实是一
 样的。返回以后，ackIndex=1表明消息组（1,2,3),只有第一条消息是消费成功的，然后将剩下两条消息重新向broker发送，假如，消息2发送失败，则将该消息放入延时消费集合，
-用定时器延时消费，而第三条消息发送成功了，则表明对于该消费者来说，已经消费成功。然后，将消费成功的消息重msgTreeMap移除，最后根据msgTreeMap返回commit offset的值
-为2，只要消息2没有被延时消费成功，即使Thread2已经成功消费了消息(4,5,6)，最大可commit的offset依然是小于2，如果消息延时消费成功以后，则max commit offset则为7，说
+用定时器延时消费，而第三条消息发送成功了，则表明对于该消费者来说，已经消费成功。然后，将消费成功的消息从msgTreeMap移除，最后根据msgTreeMap返回commit offset的值
+为2，应为只要消息2没有被延时消费成功，即使Thread2已经成功消费了消息(4,5,6)，最大可commit的offset依然是小于2，如果消息延时消费成功以后，则max commit offset则为7，说
 明offset小于7的消息都已近消费成功。
+        回过头在来说一下客户端向broker发起拉取消息请求时，broker端会根据nextOffset批量返回（max=32）消息，以及commitOffset，即当前客户端已明确消费小于commitOffset以下的消息,更新ConsumerOffsetManager.offsetTable缓存，定时刷盘。也即时当Consumer端初始化，第一次拉取可消费消息的offset的值时，
+会从ConsumerOffsetManager.offsetTable获取。
+
+    3.2顺序消费(ConsumeMessageConcurrentlyService)：
+    RebalanceImpl.processQueueTable 该属性是消息队列快照缓存 ConcurrentHashMap<MessageQueue, ProcessQueue>，MessageQueue 是由topic-brokerName-queueId确定的一条消费队列视图，而ProcessQueue则是MessageQueue一一对应的
+队列状态快照；里面有一个状态位locked 去判断该consumer客户端是否从broker抢到锁以及lastLockTimestamp判断当前获取锁是否超时，如果超时则需要继续向broker续租。
+    首先会由DefaultMQPushConsumerImpl.MQClientInstance.RebalanceService 该后台定时任务 定时调用rebalanceImpl.doRebalance，该方法以后在详细分析，现在先简单概括一下就是从nameser获取订阅数据，该数据包括MessageQueue集
+合，加锁的方式有两种，一种是消息处理过程中，发现锁超时，然后单独向broker发起加锁请求；另外一种是由consumer端后台定时任务定时向broker获取批量锁。
+    这里为什么要加锁，是应为由于可端执行消费队列重分配时，不同的消费客户端有可能分配到相同的队列，因此需要这个锁机制保障顺序消费，这是机制是进程级别的保证，当然客户端需要通过内存锁，rmq使用的ReenterLock,来保证线程级别的锁，从
+而保证整个集群中，只有一个线程可以消费一条队列，这样，就可以保证同一条队列里面的消息顺序消费了。
+    broker端的实现也是比较简单明了的，就是通过BrokerController.RebalanceLockManager 类管理mq的锁，通过mqLockTable缓存，来管理当前的mq是由具体哪个消费者获取的，通过group-clientId,可以确认，加锁时，通过ReentrantLock保证并发。
+    处理完后，消息的commit过程与并发消费基本一致。
