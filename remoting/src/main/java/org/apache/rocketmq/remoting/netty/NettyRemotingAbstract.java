@@ -319,14 +319,20 @@ public abstract class NettyRemotingAbstract {
     public void invokeAsyncImpl(final Channel channel, final RemotingCommand request, final long timeoutMillis,
         final InvokeCallback invokeCallback)
         throws InterruptedException, RemotingTooMuchRequestException, RemotingTimeoutException, RemotingSendRequestException {
+        //获取请求唯一表示
         final int opaque = request.getOpaque();
+        //semaphoreAsync此处的信号量是为了控制异步请求的个数，这里的默认最大的并发个数为65535，并给上等待超时时间，
         boolean acquired = this.semaphoreAsync.tryAcquire(timeoutMillis, TimeUnit.MILLISECONDS);
         if (acquired) {
+            //代码走到这里，说明已经获取请求成功
+            //这里利用原生的信号量，封装了一个只能释放一次的信号量，就是说，一次异步请求，只能释放一次资源，
+            //这里其实也算是一种防范是编程，为了避免一次请求可以释放多次，导致别的请求无法释放的情况出现。
             final SemaphoreReleaseOnlyOnce once = new SemaphoreReleaseOnlyOnce(this.semaphoreAsync);
-
+            //step1->缓存请求-响应结果键值对，这里的invokeCallback是客户端实现的回调实例。
             final ResponseFuture responseFuture = new ResponseFuture(opaque, timeoutMillis, invokeCallback, once);
             this.responseTable.put(opaque, responseFuture);
             try {
+                //step2->发起网络请求，并注册发送结果监听
                 channel.writeAndFlush(request).addListener(new ChannelFutureListener() {
                     @Override
                     public void operationComplete(ChannelFuture f) throws Exception {
@@ -340,6 +346,7 @@ public abstract class NettyRemotingAbstract {
                         responseFuture.putResponse(null);
                         responseTable.remove(opaque);
                         try {
+                            //这里为什么发送失败还要执行回调结果呢，其实也是一种防范行为，确保回调结果只执行一次。
                             executeInvokeCallback(responseFuture);
                         } catch (Throwable e) {
                             PLOG.warn("excute callback in writeAndFlush addListener, and callback throw", e);
@@ -363,6 +370,7 @@ public abstract class NettyRemotingAbstract {
                     this.semaphoreAsync.availablePermits()//
                 );
             PLOG.warn(info);
+            //获取请求不成功，会抛出请求过多异常
             throw new RemotingTooMuchRequestException(info);
         }
     }
