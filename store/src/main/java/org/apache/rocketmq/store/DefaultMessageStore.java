@@ -1126,6 +1126,10 @@ public class DefaultMessageStore implements MessageStore {
     }
 
     /**
+     * rmq 在启动时，会创建一个"abort"文件，如果rmq正常退出，则删除abort文件，如果异常退出，
+     * 例如机子突然间crash掉了，就没有机会删除该文件，所以在rmq重启时，只要发现这个文件存在
+     * 就是可以认为上次是异常退出，需要检验数据，如果文件不存在，则认为上次是正常退出，数据正常
+     *
      * @throws IOException
      */
     private void createTempFile() throws IOException {
