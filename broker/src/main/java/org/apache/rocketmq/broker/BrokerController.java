@@ -690,6 +690,7 @@ public class BrokerController {
             @Override
             public void run() {
                 try {
+                    //一方面，定时向nameser注册broker信息，另一方面，当心跳包返送
                     BrokerController.this.registerBrokerAll(true, false);
                 } catch (Throwable e) {
                     log.error("registerBrokerAll Exception", e);

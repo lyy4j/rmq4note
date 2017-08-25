@@ -195,7 +195,7 @@ public class RouteInfoManager {
         } catch (Exception e) {
             log.error("registerBroker Exception", e);
         }
-
+        log.info("after register , topicQueueTable {}", topicQueueTable);
         return result;
     }
 
@@ -381,6 +381,7 @@ public class RouteInfoManager {
         HashMap<String, List<String>> filterServerMap = new HashMap<String, List<String>>();
         topicRouteData.setFilterServerTable(filterServerMap);
 
+        log.info("before pickup, topicQueueTable cache:{}", topicQueueTable);
         try {
             try {
                 this.lock.readLock().lockInterruptibly();
@@ -429,7 +430,12 @@ public class RouteInfoManager {
         return null;
     }
 
+    /**
+     * 这里定时关闭不活跃的broker连接，默认时间为两分钟。
+     * 这里，broker会定时向nameser注册broker信息时，会更新BrokerLiveInfo.lastUpdateTimestamp
+     */
     public void scanNotActiveBroker() {
+        log.info("schedule topicQueueTable,{}", topicQueueTable);
         Iterator<Entry<String, BrokerLiveInfo>> it = this.brokerLiveTable.entrySet().iterator();
         while (it.hasNext()) {
             Entry<String, BrokerLiveInfo> next = it.next();
@@ -557,6 +563,7 @@ public class RouteInfoManager {
                     }
                 } finally {
                     this.lock.writeLock().unlock();
+                    log.info("after  Channel Destroy, {}", topicQueueTable);
                 }
             } catch (Exception e) {
                 log.error("onChannelDestroy Exception", e);
@@ -805,5 +812,9 @@ class BrokerLiveInfo {
     public String toString() {
         return "BrokerLiveInfo [lastUpdateTimestamp=" + lastUpdateTimestamp + ", dataVersion=" + dataVersion
             + ", channel=" + channel + ", haServerAddr=" + haServerAddr + "]";
+    }
+
+    public static void main(String[] args) {
+        System.out.println("heh");
     }
 }
