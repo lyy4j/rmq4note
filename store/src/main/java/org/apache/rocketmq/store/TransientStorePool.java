@@ -45,6 +45,11 @@ public class TransientStorePool {
 
     /**
      * It's a heavy init method.
+     *
+     * 这里使用 堆外内存 池化的组合方式，来对生命周期较短，但涉及到I/O操作的对象
+     * 进行堆外内存的在使用（Netty中就使用了该方式）
+     *
+     *
      */
     public void init() {
         for (int i = 0; i < poolSize; i++) {
@@ -52,6 +57,9 @@ public class TransientStorePool {
 
             final long address = ((DirectBuffer) byteBuffer).address();
             Pointer pointer = new Pointer(address);
+
+            //过mlock可以将进程使用的部分或者全部的地址空间锁定在物理内存中，防止其被交换到swap空间。
+            //对时间敏感的应用会希望全部使用物理内存，提高数据访问和操作的效率。
             LibC.INSTANCE.mlock(pointer, new NativeLong(fileSize));
 
             availableBuffers.offer(byteBuffer);
