@@ -509,11 +509,13 @@ public class MappedFile extends ReferenceResource {
                 }
             }
 
-            // prevent gc
+            // prevent gc 为什么么会防止gc？
             if (j % 1000 == 0) {
                 log.info("j={}, costTime={}", j, System.currentTimeMillis() - time);
                 time = System.currentTimeMillis();
                 try {
+                    //作用，就是 触发操作系统立刻重新进行一次CPU竞争。竞争
+                    //的结果也许是当前线程仍然获得CPU控制权，也许会换成别的线程获得CPU控制权。
                     Thread.sleep(0);
                 } catch (InterruptedException e) {
                     e.printStackTrace();
@@ -567,6 +569,7 @@ public class MappedFile extends ReferenceResource {
         }
 
         {
+            //当用户态应用使用MADV_WILLNEED命令执行madvise()系统调用时，它会通知内核，某个文件内存映射区域中的给定范围的文件页不久将要被访问。
             int ret = LibC.INSTANCE.madvise(pointer, new NativeLong(this.fileSize), LibC.MADV_WILLNEED);
             log.info("madvise {} {} {} ret = {} time consuming = {}", address, this.fileName, this.fileSize, ret, System.currentTimeMillis() - beginTime);
         }

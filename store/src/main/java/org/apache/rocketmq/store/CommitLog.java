@@ -580,7 +580,7 @@ public class CommitLog {
         //获取CopyOnWriteArrayList<MappedFile>的最后一个MappedFile
         MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile();
 
-        //默认使用自旋锁，可以使用重入锁,这里表明一个broker，写入缓冲区是线程安全的
+        //step1->默认使用自旋锁，可以使用重入锁,这里表明一个broker，写入缓冲区是线程安全的
         lockForPutMessage(); //spin...
         try {
             long beginLockTimestamp = this.defaultMessageStore.getSystemClock().now();
@@ -592,7 +592,7 @@ public class CommitLog {
             msg.setStoreTimestamp(beginLockTimestamp);
 
 
-
+            //step2->
             if (null == mappedFile || mappedFile.isFull()) {
                 //代码走到这里，说明broker的  mappedFileQueue 为初始创建或者最后一个mappedFile已满
                 //因此会重新创建一个新的mappedFile
@@ -604,7 +604,7 @@ public class CommitLog {
                 return new PutMessageResult(PutMessageStatus.CREATE_MAPEDFILE_FAILED, null);
             }
 
-            //把消息写入缓冲区
+            //step3->把消息写入缓冲区
             result = mappedFile.appendMessage(msg, this.appendMessageCallback);
             switch (result.getStatus()) {
                 case PUT_OK:
@@ -655,7 +655,7 @@ public class CommitLog {
 
         GroupCommitRequest request = null;
 
-        // Synchronization flush 同步刷盘
+        //step4-> Synchronization flush 同步刷盘
         if (FlushDiskType.SYNC_FLUSH == this.defaultMessageStore.getMessageStoreConfig().getFlushDiskType()) {
             //flushCommitLogService->service 该service是处理local flush，刷盘
             final GroupCommitService service = (GroupCommitService) this.flushCommitLogService;
@@ -686,7 +686,7 @@ public class CommitLog {
             }
         }
 
-        // Synchronous write double
+        //step5->高可用，同步消息 Synchronous write double
         if (BrokerRole.SYNC_MASTER == this.defaultMessageStore.getMessageStoreConfig().getBrokerRole()) {
             //该service 是委托groupTransferService  处理master  slave  同步消息的处理类
             HAService service = this.defaultMessageStore.getHaService();
@@ -1033,6 +1033,8 @@ public class CommitLog {
         private volatile List<GroupCommitRequest> requestsWrite = new ArrayList<GroupCommitRequest>();
         private volatile List<GroupCommitRequest> requestsRead = new ArrayList<GroupCommitRequest>();
 
+
+
         public void putRequest(final GroupCommitRequest request) {
             synchronized (this) {
                 this.requestsWrite.add(request);
@@ -1042,6 +1044,10 @@ public class CommitLog {
             }
         }
 
+        /**
+         *
+         * 这里使用双缓存技术
+         */
         private void swapRequests() {
             List<GroupCommitRequest> tmp = this.requestsWrite;
             this.requestsWrite = this.requestsRead;
