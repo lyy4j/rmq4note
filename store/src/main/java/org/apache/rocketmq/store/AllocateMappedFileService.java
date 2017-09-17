@@ -50,8 +50,10 @@ public class AllocateMappedFileService extends ServiceThread {
     public MappedFile putRequestAndReturnMappedFile(String nextFilePath, String nextNextFilePath, int fileSize) {
         int canSubmitRequests = 2;
 
-        //Enable transient commitLog store poll only if transientStorePoolEnable is true and the FlushDiskType is ASYNC_FLUSH
         //transientStorePoolEnable default value :false;
+        //canSubmitRequests 代表创建MappedFile的个数，如果系统使用了消息异步持久化的池化技术，并且
+        //系统配置fastFailIfNoBufferInStorePool为true，则canSubmitRequests的数值为TransientStorePool中DirectBuffer剩余数量与请求创建的数量差值
+        //这里也算是一种持久化控流的方式。
         if (this.messageStore.getMessageStoreConfig().isTransientStorePoolEnable()) {
             if (this.messageStore.getMessageStoreConfig().isFastFailIfNoBufferInStorePool()
                 && BrokerRole.SLAVE != this.messageStore.getMessageStoreConfig().getBrokerRole()) { //if broker is slave, don't fast fail even no buffer in pool
@@ -59,6 +61,7 @@ public class AllocateMappedFileService extends ServiceThread {
             }
         }
 
+        //AllocateRequest代表一个创建MappedFile的请求抽象，通过CountDownLatch异步转同步
         AllocateRequest nextReq = new AllocateRequest(nextFilePath, fileSize);
         boolean nextPutOK = this.requestTable.putIfAbsent(nextFilePath, nextReq) == null;
 
@@ -76,6 +79,7 @@ public class AllocateMappedFileService extends ServiceThread {
             canSubmitRequests--;
         }
 
+        //创建第二个MappedFile,key为nextNextFilePath
         AllocateRequest nextNextReq = new AllocateRequest(nextNextFilePath, fileSize);
         boolean nextNextPutOK = this.requestTable.putIfAbsent(nextNextFilePath, nextNextReq) == null;
         if (nextNextPutOK) {
@@ -96,10 +100,12 @@ public class AllocateMappedFileService extends ServiceThread {
             return null;
         }
 
+
         AllocateRequest result = this.requestTable.get(nextFilePath);
         try {
             if (result != null) {
-                //waitTimeOut default = 5秒
+                //waitTimeOut default = 5秒，这里会一直等待,直到AllocateMappedFileService.run()-》mmapOperation()从requestQueue取出
+                //AllocateRequest,创建MappedFile完毕后，才返回。
                 boolean waitOK = result.getCountDownLatch().await(waitTimeOut, TimeUnit.MILLISECONDS);
                 if (!waitOK) {
                     log.warn("create mmap timeout " + result.getFilePath() + " " + result.getFileSize());
