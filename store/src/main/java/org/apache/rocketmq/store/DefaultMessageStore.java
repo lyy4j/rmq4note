@@ -190,17 +190,19 @@ public class DefaultMessageStore implements MessageStore {
         boolean result = true;
 
         try {
+            //通过abort文件判断上次rmq上次退出是否正常，如果正常退出，就可以把abort文件删除，即不存在。
             boolean lastExitOK = !this.isTempFileExist();
             log.info("last shutdown {}", lastExitOK ? "normally" : "abnormally");
+
 
             if (null != scheduleMessageService) {
                 result = result && this.scheduleMessageService.load();
             }
 
-            // load Commit Log
+            // load Commit Log，加载消息存储映射文件
             result = result && this.commitLog.load();
 
-            // load Consume Queue
+            // load Consume Queue，加载逻辑消费队列
             result = result && this.loadConsumeQueue();
 
             if (result) {

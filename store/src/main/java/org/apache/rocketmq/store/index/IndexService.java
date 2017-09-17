@@ -240,7 +240,7 @@ public class IndexService {
 
 
 
-            //如果在producer客户端指定了uniqKey,则为该topic-uniqKey 构建索引
+            //如果在producer客户端指定了uniqKey, 也就是producer为该条消息生成的唯一id,则为该topic-uniqKey 构建索引
             if (req.getUniqKey() != null) {
                 indexFile = putKey(indexFile, msg, buildKey(topic, req.getUniqKey()));
                 if (indexFile == null) {

@@ -58,7 +58,7 @@ public class Message implements Serializable {
         this(topic, tags, keys, 0, body, true);
     }
 
-    public void setKeys(String keys) {
+    public void  setKeys(String keys) {
         this.putProperty(MessageConst.PROPERTY_KEYS, keys);
     }
 

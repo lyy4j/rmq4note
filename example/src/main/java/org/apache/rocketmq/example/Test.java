@@ -1,5 +1,6 @@
 package org.apache.rocketmq.example;
 
+import java.lang.ref.WeakReference;
 import java.util.*;
 
 /**
@@ -7,20 +8,48 @@ import java.util.*;
  */
 public class Test {
 
+    static class TestRunnable implements Runnable {
 
-    public static void main(String[] args) {
+        WeakReference<Object> abcWeakRef;
+        public TestRunnable(WeakReference<Object> abcWeakRef) {
+            this.abcWeakRef = abcWeakRef;
+        }
+
+        @Override
+        public void run() {
+            synchronized (abcWeakRef.get()) {
+                try {
+                    System.out.println(Thread.currentThread().getName() + " into!");
+
+                    abcWeakRef.get().wait();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+
+                System.out.println(Thread.currentThread().getName() + " has relase the from the o");
+            }
+        }
+    }
+
+    public static void main(String[] args) throws InterruptedException {
 
 
-        String input  =   "aabaca";
+
+        Object o = new Object();
+        WeakReference<Object> abcWeakRef = new WeakReference<Object>(o);
 
 
-        System.out.print(sub(input));
+        new Thread(new TestRunnable(abcWeakRef), "test").start();
+
+        Thread.sleep(2000);
 
 
+        System.gc();
+
+        System.out.println("gc the o");
 
 
-
-
+        Thread.sleep(3000);
     }
 
 
