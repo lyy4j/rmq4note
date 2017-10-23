@@ -38,14 +38,10 @@ import org.slf4j.LoggerFactory;
  * [40, 5000000 * 4(indexNum)），存放消息的哈希索引信息，
  * 例如，
  * 一条消息的槽位置为absSlotPos：|key.hashCode() % hashSlotNum|  * hashSlotSize(4) + IndexHeader.INDEX_HEADER_SIZE(40)
- *  对应的value，最后一次存放该位置的索引个数
+ *  对应的value，最后一次存放该位置索引逻辑位移
  *
  * [5000000 * 4,n);该区域存放具体的索引内容，递增存放，每条索引的大小为20字节
  * 内容为 [消息的key的hash值(4字节),消息的物理位置(8字节),消息的存储时间以及索引文件创建的时间差（秒数,4字节,消息所在的绝对索引位置(4字节)]
- *
- *
- * 每个索引文件最多存放两千万条消息索引
- *
  *
  */
 public class IndexFile {
@@ -137,7 +133,7 @@ public class IndexFile {
         if (this.indexHeader.getIndexCount() < this.indexNum) {
 
             int keyHash = indexKeyHashMethod(key);
-            //hashSlotNum = 5000000
+            //hashSlotNum = 5000000 (5百万个hash槽)
             //通过简单的hash算法，算出key所在的相对槽位置
             int slotPos = keyHash % this.hashSlotNum;
             //绝对槽位置 = 40 + slotPos(相对槽位置) * 4(hash槽大小)
@@ -168,15 +164,16 @@ public class IndexFile {
 
                 //绝对索引位置 = 40(索引头大小) + 5000000(hashSlotNum) * 4(hashSlotSize) + IndexCount(当前已索引条数) * 20(索引大小)
                 //this.indexHeader.getIndexCount() * indexSize 这里保证每条索引实体所存放的位置是递增的
+                //存放索引的物理位移
                 int absIndexPos =
                     IndexHeader.INDEX_HEADER_SIZE + this.hashSlotNum * hashSlotSize
                         + this.indexHeader.getIndexCount() * indexSize;
 
                 // start absIndexPos:绝对索引位置
                 // 索引消息的大小（20字节），4(1) + 4(2) + 8(3) + 4(4)
-                //(1):消息的key的hash值，
-                //(2):消息的物理位置
-                //(3):消息的存储时间以及索引文件创建的时间差（秒数）
+                //(1):业务消息的key的hash值，
+                //(2):业务消息的物理位置
+                //(3):业务消息的存储时间以及索引文件创建的时间差（秒数）
                 //(4):在相同槽位置中，上一条索引消息所在的逻辑索引，这里是查询的关键，
                 //这里详细梳理一下：
                 //eg:
@@ -196,14 +193,14 @@ public class IndexFile {
                 //5th_index_msg, logicIndex = 5,根据key，散列到slot_2，则5th_index_msg.slotValue = 2(logicIndex)
                 //
                 //这里就达到了一种类似链表的效果：
-                //         _ _ _ _                                                               _ _ _ _
-                //         |slot_2|  ------------------------------------------------------------|slot_3|
-                //         ~~~~|~~~~                                                            ~~~~|~~~
-                // |1st_index_msg,logicIndex=1,preLogicIndex=0|              |3rd_index_msg,logicIndex=3,preLogicIndex=0|
-                //             |                                                       |
-                // |2nd_index_msg,logicIndex=2,preLogicIndex=1|              |4th_index_msg,logicIndex=4,preLogicIndex=3|
-                //             |
-                // |5th_index_msg,logicIndex=5,preLogicIndex=2|
+//                         _ _ _ _                                                               _ _ _ _
+//                         |slot_2|  ------------------------------------------------------------|slot_3|
+//                         ~~~~|~~~~                                                            ~~~~|~~~
+//                 |1st_index_msg,logicIndex=1,preLogicIndex=0|              |3rd_index_msg,logicIndex=3,preLogicIndex=0|
+//                             |                                                                    |
+//                 |2nd_index_msg,logicIndex=2,preLogicIndex=1|              |4th_index_msg,logicIndex=4,preLogicIndex=3|
+//                             |
+//                 |5th_index_msg,logicIndex=5,preLogicIndex=2|
                 //
                 // 也就是说，当客户端需要通过制定的key来查询消息时，先通过散列算法，把key所在的slot槽值给算出
                 // 例如，还是到absSlotPos = slot_2, 获取的值为 logicIndex = 5
@@ -215,7 +212,7 @@ public class IndexFile {
                 this.mappedByteBuffer.putLong(absIndexPos + 4, phyOffset);
                 this.mappedByteBuffer.putInt(absIndexPos + 4 + 8, (int) timeDiff);
                 this.mappedByteBuffer.putInt(absIndexPos + 4 + 8 + 4, slotValue);
-                //absSlotPos:绝对槽位置
+                //absSlotPos:绝对槽位置，该位置存放具有相同hash值的  最大   [key索引]逻辑位移
                 this.mappedByteBuffer.putInt(absSlotPos, this.indexHeader.getIndexCount());
 
                 if (this.indexHeader.getIndexCount() <= 1) {

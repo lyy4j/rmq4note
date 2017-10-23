@@ -438,10 +438,18 @@ public class MappedFileQueue {
             for (int i = 0; i < mfsLength; i++) {
                 boolean destroy;
                 MappedFile mappedFile = (MappedFile) mfs[i];
+                //获取映射文件最后一个位置的索引
+                //如果result == null，表明该映射文件还没有填充完，即不存在下一个位置索引文件
+                //因此无需删除当前的位置索引文件。
                 SelectMappedBufferResult result = mappedFile.selectMappedBuffer(this.mappedFileSize - unitSize);
                 if (result != null) {
+                    //获取该位置索引所对应的  业务消息 开始物理位移
                     long maxOffsetInLogicQueue = result.getByteBuffer().getLong();
+                    //调用mappedFile.selectMappedBuffer方法时，持有计数器加1，
+                    //因此，查询完后，要释放引用，持有计数器减1.
                     result.release();
+                    //如果该位置索引文件的最大 业务消息物理位移 都比指定的offset小
+                    //则说明该位置索引文件可以删除
                     destroy = maxOffsetInLogicQueue < offset;
                     if (destroy) {
                         log.info("physic min offset " + offset + ", logics in current mappedFile max offset "

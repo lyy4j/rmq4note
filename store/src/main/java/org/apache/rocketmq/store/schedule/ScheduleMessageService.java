@@ -41,6 +41,18 @@ import org.apache.rocketmq.store.config.StorePathConfigHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * 该定时任务的作用是，如果客户端生产的消息设置了消息延时属性(MessageConst.PROPERTY_DELAY_TIME_LEVEL),则表明
+ * 该消息时指定的延时策略后，才能被consumer端消息。例如，当我们消费者消费过慢时，从broker端拉取的消息已经超过
+ * 了指定的消费时间，那么，consumer端会设置的消息MessageConst.PROPERTY_DELAY_TIME_LEVEL属性，并把消息发回给原来的broker。
+ *
+ * 对于延时消费的实现原理如下:
+ * 如果在broker写入消息时， 发现该消息设置了MessageConst.PROPERTY_DELAY_TIME_LEVEL属性，则认为该消息需要延时消费，则会
+ * 备份原来的topic 以及queueId，然后把实际的topic改为【SCHEDULE_TOPIC = "SCHEDULE_TOPIC_XXXX"】，queueId改为【delayLevel - 1】；
+ * 然后在由ScheduleMessageService 定时查询出topic为【SCHEDULE_TOPIC_XXXX】的消息，并判断当前时间是否超过了这类消息的延时，如果
+ * 超过了，则根据备份的原topic以及queueId, 在构造一个新的消息，在次写入broker，这时候，consumer端就可以消费这条延时消息了。
+ *
+ */
 public class ScheduleMessageService extends ConfigManager {
     public static final String SCHEDULE_TOPIC = "SCHEDULE_TOPIC_XXXX";
     private static final Logger log = LoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);

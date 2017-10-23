@@ -59,7 +59,7 @@ public class SelectMappedBufferResult {
 //        }
 //    }
 
-    public synchronized void release() {
+    public synchronized void  release() {
         if (this.mappedFile != null) {
             this.mappedFile.release();
             this.mappedFile = null;

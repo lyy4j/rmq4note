@@ -403,6 +403,16 @@ public class DefaultMessageStore implements MessageStore {
         return commitLog;
     }
 
+    /**
+     *
+     * @param group
+     * @param topic
+     * @param queueId
+     * @param offset
+     * @param maxMsgNums
+     * @param subscriptionData
+     * @return
+     */
     public GetMessageResult getMessage(final String group, final String topic, final int queueId, final long offset, final int maxMsgNums,
         final SubscriptionData subscriptionData) {
         if (this.shutdown) {
@@ -1250,6 +1260,7 @@ public class DefaultMessageStore implements MessageStore {
     }
 
     private void recover(final boolean lastExitOK) {
+        //先恢复  逻辑物理位移索引文件
         this.recoverConsumeQueue();
 
         if (lastExitOK) {
@@ -1759,95 +1770,101 @@ public class DefaultMessageStore implements MessageStore {
          *
          *
          */
-        private void doReput() {
-            for (boolean doNext = true; this.isCommitLogAvailable() && doNext; ) {
-                //isDuplicationEnable default:false
-                if (DefaultMessageStore.this.getMessageStoreConfig().isDuplicationEnable() //
-                    && this.reputFromOffset >= DefaultMessageStore.this.getConfirmOffset()) {
-                    break;
-                }
+    private void doReput() {
+        for (boolean doNext = true; this.isCommitLogAvailable() && doNext; ) {
+            //isDuplicationEnable default:false
+            if (DefaultMessageStore.this.getMessageStoreConfig().isDuplicationEnable() //
+                && this.reputFromOffset >= DefaultMessageStore.this.getConfirmOffset()) {
+                break;
+            }
 
-                //这里获取reputFromOffset所在的MappedFile，区间在[reputFromOffset， MappedFile.end]的所有字节消息，添加
-                //该MappedFile 的持有引用数MappedFile.hold()；
-                SelectMappedBufferResult result = DefaultMessageStore.this.commitLog.getData(reputFromOffset);
-                if (result != null) {
-                    try {
-                        this.reputFromOffset = result.getStartOffset();
+            //这里获取reputFromOffset所在的MappedFile，区间在[reputFromOffset， MappedFile.end]的所有字节消息，添加
+            //该MappedFile 的持有引用数MappedFile.hold()；
+            SelectMappedBufferResult result = DefaultMessageStore.this.commitLog.getData(reputFromOffset);
+            if (result != null) {
+                try {
+                    this.reputFromOffset = result.getStartOffset();
 
-                        for (int readSize = 0; readSize < result.getSize() && doNext; ) {
-                            //每次滚动获取下一条消息的字节内容
-                            DispatchRequest dispatchRequest =
-                                DefaultMessageStore.this.commitLog.checkMessageAndReturnSize(result.getByteBuffer(), false, false);
-                            int size = dispatchRequest.getMsgSize();
+                    for (int readSize = 0; readSize < result.getSize() && doNext; ) {
+                        //每次滚动获取下一条消息的字节内容
+                        DispatchRequest dispatchRequest =
+                            DefaultMessageStore.this.commitLog.checkMessageAndReturnSize(result.getByteBuffer(), false, false);
+                        int size = dispatchRequest.getMsgSize();
 
-                            if (dispatchRequest.isSuccess()) {
-                                if (size > 0) {
-                                    //dispatchRequest 代表一条消息承载，
-                                    // 1、构建存放该消息的位置索引，并且放入缓存(逻辑offset 以及 物理offset 对应关系)
-                                    // 2、构建构建 消息查询索引，该索引的作用为通过topic 和 key 快速定位具体消息.
-                                    DefaultMessageStore.this.doDispatch(dispatchRequest);
+                        if (dispatchRequest.isSuccess()) {
+                            if (size > 0) {
+                                //dispatchRequest 代表一条消息承载，
+                                // 1、构建存放该消息的位置索引，并且放入缓存(逻辑offset 以及 物理offset 对应关系)
+                                // 2、构建构建 消息查询索引，该索引的作用为通过topic 和 key 快速定位具体消息.
+                                DefaultMessageStore.this.doDispatch(dispatchRequest);
 
-                                    if (BrokerRole.SLAVE != DefaultMessageStore.this.getMessageStoreConfig().getBrokerRole()
-                                        && DefaultMessageStore.this.brokerConfig.isLongPollingEnable()) {
-                                        DefaultMessageStore.this.messageArrivingListener.arriving(dispatchRequest.getTopic(),
-                                            dispatchRequest.getQueueId(), dispatchRequest.getConsumeQueueOffset() + 1,
-                                            dispatchRequest.getTagsCode());
-                                    }
-                                    // FIXED BUG By shijia，更新已经构建好索引的消息的位置
-                                    this.reputFromOffset += size;
-                                    readSize += size;
-                                    if (DefaultMessageStore.this.getMessageStoreConfig().getBrokerRole() == BrokerRole.SLAVE) {
-                                        DefaultMessageStore.this.storeStatsService
-                                            .getSinglePutMessageTopicTimesTotal(dispatchRequest.getTopic()).incrementAndGet();
-                                        DefaultMessageStore.this.storeStatsService
-                                            .getSinglePutMessageTopicSizeTotal(dispatchRequest.getTopic())
-                                            .addAndGet(dispatchRequest.getMsgSize());
-                                    }
-                                } else if (size == 0) {
-                                    this.reputFromOffset = DefaultMessageStore.this.commitLog.rollNextFile(this.reputFromOffset);
-                                    readSize = result.getSize();
+                                //唤醒consumer 拉取消息的请求
+                                if (BrokerRole.SLAVE != DefaultMessageStore.this.getMessageStoreConfig().getBrokerRole()
+                                    && DefaultMessageStore.this.brokerConfig.isLongPollingEnable()) {
+                                    DefaultMessageStore.this.messageArrivingListener.arriving(dispatchRequest.getTopic(),
+                                        dispatchRequest.getQueueId(), dispatchRequest.getConsumeQueueOffset() + 1,
+                                        dispatchRequest.getTagsCode());
                                 }
-                            } else if (!dispatchRequest.isSuccess()) {
 
-                                if (size > 0) {
-                                    log.error("[BUG]read total count not equals msg total size. reputFromOffset={}", reputFromOffset);
-                                    this.reputFromOffset += size;
-                                } else {
-                                    doNext = false;
-                                    if (DefaultMessageStore.this.brokerConfig.getBrokerId() == MixAll.MASTER_ID) {
-                                        log.error("[BUG]the master dispatch message to consume queue error, COMMITLOG OFFSET: {}",
-                                            this.reputFromOffset);
+                                // FIXED BUG By shijia，更新已经构建好索引的消息的位置
+                                this.reputFromOffset += size;
+                                readSize += size;
 
-                                        this.reputFromOffset += result.getSize() - readSize;
-                                    }
+                                //如果是slave 角色，则更新监控信息
+                                if (DefaultMessageStore.this.getMessageStoreConfig().getBrokerRole() == BrokerRole.SLAVE) {
+                                    DefaultMessageStore.this.storeStatsService
+                                        .getSinglePutMessageTopicTimesTotal(dispatchRequest.getTopic()).incrementAndGet();
+                                    DefaultMessageStore.this.storeStatsService
+                                        .getSinglePutMessageTopicSizeTotal(dispatchRequest.getTopic())
+                                        .addAndGet(dispatchRequest.getMsgSize());
+                                }
+                            } else if (size == 0) {
+                                //代码走到这里，说明到达本映射文件中的尾部，即改文件的所有消息均构建索引完成，因此滚动到下一个索引文件
+                                this.reputFromOffset = DefaultMessageStore.this.commitLog.rollNextFile(this.reputFromOffset);
+                                readSize = result.getSize();
+                            }
+                        } else if (!dispatchRequest.isSuccess()) {
+
+                            if (size > 0) {
+
+                                log.error("[BUG]read total count not equals msg total size. reputFromOffset={}", reputFromOffset);
+                                this.reputFromOffset += size;
+                            } else {
+                                doNext = false;
+                                if (DefaultMessageStore.this.brokerConfig.getBrokerId() == MixAll.MASTER_ID) {
+                                    log.error("[BUG]the master dispatch message to consume queue error, COMMITLOG OFFSET: {}",
+                                        this.reputFromOffset);
+
+                                    this.reputFromOffset += result.getSize() - readSize;
                                 }
                             }
                         }
-                    } finally {
-                        //释放MappedFile的引用
-                        result.release();
                     }
-                } else {
-                    doNext = false;
+                } finally {
+                    //释放MappedFile的引用
+                    result.release();
                 }
+            } else {
+                doNext = false;
+            }
+        }
+    }
+
+    @Override
+    public void run() {
+        DefaultMessageStore.log.info(this.getServiceName() + " service started");
+
+        while (!this.isStopped()) {
+            try {
+                Thread.sleep(1);
+                this.doReput();
+            } catch (Exception e) {
+                DefaultMessageStore.log.warn(this.getServiceName() + " service has exception. ", e);
             }
         }
 
-        @Override
-        public void run() {
-            DefaultMessageStore.log.info(this.getServiceName() + " service started");
-
-            while (!this.isStopped()) {
-                try {
-                    Thread.sleep(1);
-                    this.doReput();
-                } catch (Exception e) {
-                    DefaultMessageStore.log.warn(this.getServiceName() + " service has exception. ", e);
-                }
-            }
-
-            DefaultMessageStore.log.info(this.getServiceName() + " service end");
-        }
+        DefaultMessageStore.log.info(this.getServiceName() + " service end");
+    }
 
         @Override
         public String getServiceName() {

@@ -283,40 +283,40 @@ public class HAService {
             this.requestsRead = tmp;
         }
 
-        private void doWaitTransfer() {
-            if (!this.requestsRead.isEmpty()) {
-                for (CommitLog.GroupCommitRequest req : this.requestsRead) {
-                    boolean transferOK = HAService.this.push2SlaveMaxOffset.get() >= req.getNextOffset();
-                    for (int i = 0; !transferOK && i < 5; i++) {
-                        this.notifyTransferObject.waitForRunning(1000);
-                        transferOK = HAService.this.push2SlaveMaxOffset.get() >= req.getNextOffset();
-                    }
-
-                    if (!transferOK) {
-                        log.warn("transfer messsage to slave timeout, " + req.getNextOffset());
-                    }
-
-                    req.wakeupCustomer(transferOK);
+    private void doWaitTransfer() {
+        if (!this.requestsRead.isEmpty()) {
+            for (CommitLog.GroupCommitRequest req : this.requestsRead) {
+                boolean transferOK = HAService.this.push2SlaveMaxOffset.get() >= req.getNextOffset();
+                for (int i = 0; !transferOK && i < 5; i++) {
+                    this.notifyTransferObject.waitForRunning(1000);
+                    transferOK = HAService.this.push2SlaveMaxOffset.get() >= req.getNextOffset();
                 }
 
-                this.requestsRead.clear();
+                if (!transferOK) {
+                    log.warn("transfer messsage to slave timeout, " + req.getNextOffset());
+                }
+
+                req.wakeupCustomer(transferOK);
+            }
+
+            this.requestsRead.clear();
+        }
+    }
+
+    public void run() {
+        log.info(this.getServiceName() + " service started");
+
+        while (!this.isStopped()) {
+            try {
+                this.waitForRunning(10);
+                this.doWaitTransfer();
+            } catch (Exception e) {
+                log.warn(this.getServiceName() + " service has exception. ", e);
             }
         }
 
-        public void run() {
-            log.info(this.getServiceName() + " service started");
-
-            while (!this.isStopped()) {
-                try {
-                    this.waitForRunning(10);
-                    this.doWaitTransfer();
-                } catch (Exception e) {
-                    log.warn(this.getServiceName() + " service has exception. ", e);
-                }
-            }
-
-            log.info(this.getServiceName() + " service end");
-        }
+        log.info(this.getServiceName() + " service end");
+    }
 
         @Override
         protected void onWaitEnd() {
@@ -591,62 +591,62 @@ public class HAService {
             }
         }
 
-        @Override
-        public void run() {
-            log.info(this.getServiceName() + " service started");
+    @Override
+    public void run() {
+        log.info(this.getServiceName() + " service started");
 
-            while (!this.isStopped()) {
-                try {
-                    //connectMaster is true ,该broker 为   slaver，在connect 注册了读事件
-                    if (this.connectMaster()) {
+        while (!this.isStopped()) {
+            try {
+                //connectMaster is true ,该broker 为   slaver，在connect 注册了读事件
+                if (this.connectMaster()) {
 
-                        //是否 到达导出当前本slaver已同步的最大offset  给  master；
-                        if (this.isTimeToReportOffset()) {
-                            //这里有可能阻塞，当tcp  write buffer 满的时候
-                            boolean result = this.reportSlaveMaxOffset(this.currentReportedOffset);
-                            //如果导出失败
-                            //则释放连接master的资源，等待下一次重连成功，在继续导出
-                            if (!result) {
-                                this.closeMaster();
-                            }
-                        }
-
-                        //继续执行多路复用的筛选步骤，把所有准备就绪的读事件轮询出来
-                        this.selector.select(1000);
-
-                        //处理读事件
-                        boolean ok = this.processReadEvent();
-                        //处理不成功，释放连接master的相公资源
-                        if (!ok) {
+                    //是否 到达导出当前本slaver已同步的最大offset  给  master；
+                    if (this.isTimeToReportOffset()) {
+                        //这里有可能阻塞，当tcp  write buffer 满的时候
+                        boolean result = this.reportSlaveMaxOffset(this.currentReportedOffset);
+                        //如果导出失败
+                        //则释放连接master的资源，等待下一次重连成功，在继续导出
+                        if (!result) {
                             this.closeMaster();
                         }
-
-                        if (!reportSlaveMaxOffsetPlus()) {
-                            continue;
-                        }
-
-                        long interval =
-                            HAService.this.getDefaultMessageStore().getSystemClock().now()
-                                - this.lastWriteTimestamp;
-                        if (interval > HAService.this.getDefaultMessageStore().getMessageStoreConfig()
-                            .getHaHousekeepingInterval()) {
-                            log.warn("HAClient, housekeeping, found this connection[" + this.masterAddress
-                                + "] expired, " + interval);
-                            this.closeMaster();
-                            log.warn("HAClient, master not response some time, so close connection");
-                        }
-                    } else {
-                        //等待五秒
-                        this.waitForRunning(1000 * 5);
                     }
-                } catch (Exception e) {
-                    log.warn(this.getServiceName() + " service has exception. ", e);
+
+                    //继续执行多路复用的筛选步骤，把所有准备就绪的读事件轮询出来
+                    this.selector.select(1000);
+
+                    //处理读事件
+                    boolean ok = this.processReadEvent();
+                    //处理不成功，释放连接master的相公资源
+                    if (!ok) {
+                        this.closeMaster();
+                    }
+
+                    if (!reportSlaveMaxOffsetPlus()) {
+                        continue;
+                    }
+
+                    long interval =
+                        HAService.this.getDefaultMessageStore().getSystemClock().now()
+                            - this.lastWriteTimestamp;
+                    if (interval > HAService.this.getDefaultMessageStore().getMessageStoreConfig()
+                        .getHaHousekeepingInterval()) {
+                        log.warn("HAClient, housekeeping, found this connection[" + this.masterAddress
+                            + "] expired, " + interval);
+                        this.closeMaster();
+                        log.warn("HAClient, master not response some time, so close connection");
+                    }
+                } else {
+                    //等待五秒
                     this.waitForRunning(1000 * 5);
                 }
+            } catch (Exception e) {
+                log.warn(this.getServiceName() + " service has exception. ", e);
+                this.waitForRunning(1000 * 5);
             }
-
-            log.info(this.getServiceName() + " service end");
         }
+
+        log.info(this.getServiceName() + " service end");
+    }
 
         //
         // private void disableWriteFlag() {

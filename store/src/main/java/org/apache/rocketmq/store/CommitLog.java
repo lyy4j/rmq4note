@@ -717,6 +717,10 @@ public class CommitLog {
                 // Slave problem
                 else {
                     // Tell the producer, slave not available
+                    //代码走到这里，说明出现了两种可能的情况，第一种就是producer 发送消息太快，导致
+                    //集群中的slave落后于master太多，或者是master同步业务消息字节给slave太慢。
+                    //因此返回状态结果PutMessageStatus.SLAVE_NOT_AVAILABLE，也就是希望producer
+                    //客户端针对该发送结果做出相对应的处理。例如放慢发送结果等。
                     putMessageResult.setPutMessageStatus(PutMessageStatus.SLAVE_NOT_AVAILABLE);
                 }
             }

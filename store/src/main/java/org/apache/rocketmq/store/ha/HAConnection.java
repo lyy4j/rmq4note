@@ -239,7 +239,7 @@ public class HAConnection {
                 try {
                     this.selector.select(1000);
 
-                    //如果slave 所请求的需要最新同步的offset 为-1 ，继续新一轮循环
+                    //如果slave 所请求的需要最新同步的offset 为-1 ，表明slave没有report当前已同步最大的逻辑位移，继续新一轮循环
                     if (-1 == HAConnection.this.slaveRequestOffset) {
                         Thread.sleep(10);
                         continue;

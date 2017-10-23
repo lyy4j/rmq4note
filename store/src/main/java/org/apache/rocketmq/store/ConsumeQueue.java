@@ -88,12 +88,15 @@ public class ConsumeQueue {
             long mappedFileOffset = 0;
             while (true) {
                 for (int i = 0; i < mappedFileSizeLogics; i += CQ_STORE_UNIT_SIZE) {
+                    //读取一条完整的 逻辑位移索引
                     long offset = byteBuffer.getLong();
                     int size = byteBuffer.getInt();
                     long tagsCode = byteBuffer.getLong();
 
                     if (offset >= 0 && size > 0) {
+                        //更新处理位置
                         mappedFileOffset = i + CQ_STORE_UNIT_SIZE;
+                        //基于消息时递增的，异常每次读取的offset均可以认为是最大的物理位移
                         this.maxPhysicOffset = offset;
                     } else {
                         log.info("recover current consume queue file over,  " + mappedFile.getFileName() + " "
@@ -102,7 +105,9 @@ public class ConsumeQueue {
                     }
                 }
 
+
                 if (mappedFileOffset == mappedFileSizeLogics) {
+                    //代码走到这里，说明这个索引文件已处理完。
                     index++;
                     if (index >= mappedFiles.size()) {
 
@@ -110,8 +115,10 @@ public class ConsumeQueue {
                             + mappedFile.getFileName());
                         break;
                     } else {
+                        //继续获取下一个逻辑位移索引映射文件
                         mappedFile = mappedFiles.get(index);
                         byteBuffer = mappedFile.sliceByteBuffer();
+                        //更新方法内全局处理位置
                         processOffset = mappedFile.getFileFromOffset();
                         mappedFileOffset = 0;
                         log.info("recover next consume queue file, " + mappedFile.getFileName());
@@ -363,10 +370,10 @@ public class ConsumeQueue {
 
     /**
      * 构建消息位置索引，大小为20
-     * @param offset
-     * @param size
-     * @param tagsCode
-     * @param cqOffset
+     * @param offset  业务消息的物理位移
+     * @param size 业务消息的大小
+     * @param tagsCode 业务消息的key的哈希值
+     * @param cqOffset 业务消息 所在的逻辑位移
      * @return
      */
     private boolean putMessagePositionInfo(final long offset, final int size, final long tagsCode,
@@ -384,6 +391,7 @@ public class ConsumeQueue {
 
         final long expectLogicOffset = cqOffset * CQ_STORE_UNIT_SIZE;
 
+        //获取映射文件，如果 不存在 或者 满 就创建
         MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile(expectLogicOffset);
         if (mappedFile != null) {
 
