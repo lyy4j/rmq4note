@@ -410,10 +410,12 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
         boolean classFilter = false;
         SubscriptionData sd = this.rebalanceImpl.getSubscriptionInner().get(pullRequest.getMessageQueue().getTopic());
         if (sd != null) {
+            //this.defaultMQPushConsumer.isPostSubscriptionWhenPull() default:false
+            //该表示为表明是否每次拉取消息时，都向broker发送Subscription 信息
             if (this.defaultMQPushConsumer.isPostSubscriptionWhenPull() && !sd.isClassFilterMode()) {
                 subExpression = sd.getSubString();
             }
-
+            //default value:false
             classFilter = sd.isClassFilterMode();
         }
 
@@ -663,10 +665,11 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
 
 
         //通过topic 从nameser 获取TopicRoute 消息，并更新DefaultMQPushConsumerImpl.RebalanceImpl.topicSubscribeInfoTable
-        //topicSubscribeInfoTable这个属性会在RebalanceImpl重负载时用上。
+        //topicSubscribeInfoTable这个属性会在RebalanceImpl重负载时用上。updateTopicRouteInfoFromNameServer()方法以topic为维度更新路由信息的，由定时任务定时执行
         this.updateTopicSubscribeInfoWhenSubscriptionChanged();
 
         ////向集群内所有的master发送心跳包  and  向broker上传所有Filter的源字节码，仅仅在PUSH模式下的消费者客户端才生效
+        //客户端与broker的所有通讯(例如拉取消息)，均通过该channel。
         this.mQClientFactory.sendHeartbeatToAllBrokerWithLock();
 
 

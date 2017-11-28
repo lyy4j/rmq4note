@@ -416,6 +416,7 @@ public class CommitLog {
         final List<MappedFile> mappedFiles = this.mappedFileQueue.getMappedFiles();
         if (!mappedFiles.isEmpty()) {
             // Looking beginning to recover from which file
+            //判断从哪个映射文件开始恢复，即从指定的开始文件到结束都需要通过快照恢复
             int index = mappedFiles.size() - 1;
             MappedFile mappedFile = null;
             for (; index >= 0; index--) {
@@ -435,13 +436,15 @@ public class CommitLog {
             long processOffset = mappedFile.getFileFromOffset();
             long mappedFileOffset = 0;
             while (true) {
+                //读取一条完整的消息
                 DispatchRequest dispatchRequest = this.checkMessageAndReturnSize(byteBuffer, checkCRCOnRecover);
                 int size = dispatchRequest.getMsgSize();
 
                 // Normal data
-                if (size > 0) {
+                if (size > 0) { //说明该条消息是一条完整的消息
                     mappedFileOffset += size;
 
+                    //尝试去构建索引，因为有可能索引已存在，如果存在，则跳过。
                     if (this.defaultMessageStore.getMessageStoreConfig().isDuplicationEnable()) {
                         if (dispatchRequest.getCommitLogOffset() < this.defaultMessageStore.getConfirmOffset()) {
                             this.defaultMessageStore.doDispatch(dispatchRequest);
@@ -449,16 +452,12 @@ public class CommitLog {
                     } else {
                         this.defaultMessageStore.doDispatch(dispatchRequest);
                     }
-                }
-                // Intermediate file read error
-                else if (size == -1) {
+                } else if (size == -1) {
+                    //代码走到这里，说明已近处理完所有的存储文件了
                     log.info("recover physics file end, " + mappedFile.getFileName());
                     break;
-                }
-                // Come the end of the file, switch to the next file
-                // Since the return 0 representatives met last hole, this can
-                // not be included in truncate offset
-                else if (size == 0) {
+                } else if (size == 0) {
+                    //滚动到下一个待处理的文件
                     index++;
                     if (index >= mappedFiles.size()) {
                         // The current branch under normal circumstances should
@@ -480,11 +479,11 @@ public class CommitLog {
             this.mappedFileQueue.setCommittedWhere(processOffset);
             this.mappedFileQueue.truncateDirtyFiles(processOffset);
 
-            // Clear ConsumeQueue redundant data(清除多余的数据)
+            // Clear ConsumeQueue redundant data(清除多余的逻辑位移索引数据)
             this.defaultMessageStore.truncateDirtyLogicFiles(processOffset);
-        }
-        // Commitlog case files are deleted
-        else {
+        } else {
+            //代码走到这里，说明所有的业务文件都删除了，因此，对应的位移索引文件也需要
+            //全部清空
             this.mappedFileQueue.setFlushedWhere(0);
             this.mappedFileQueue.setCommittedWhere(0);
             this.defaultMessageStore.destroyLogics();
@@ -556,7 +555,8 @@ public class CommitLog {
         //普通消息的commit 以及事务消息的commit步骤
         if (tranType == MessageSysFlag.TRANSACTION_NOT_TYPE//
             || tranType == MessageSysFlag.TRANSACTION_COMMIT_TYPE) {
-            // Delay Delivery 消息是否延迟提交，默认为false
+            // Delay Delivery 消息是否延迟提交，默认为false，
+            //如果消息延时提交，原理请看ScheduleMessageService
             if (msg.getDelayTimeLevel() > 0) {
                 if (msg.getDelayTimeLevel() > this.defaultMessageStore.getScheduleMessageService().getMaxDelayLevel()) {
                     msg.setDelayTimeLevel(this.defaultMessageStore.getScheduleMessageService().getMaxDelayLevel());

@@ -106,7 +106,10 @@ public class MQClientInstance {
         }
     });
     private final ClientRemotingProcessor clientRemotingProcessor;
+
+    //该服务主要通过长拉取模式，向broker拉取消息
     private final PullMessageService pullMessageService;
+
     private final RebalanceService rebalanceService;
     private final DefaultMQProducer defaultMQProducer;
     private final ConsumerStatsManager consumerStatsManager;
@@ -228,11 +231,13 @@ public class MQClientInstance {
                     }
                     // Start request-response channel for netty bootstrap start
                     this.mQClientAPIImpl.start();
+
                     // Start various schedule tasks
                     this.startScheduledTask();
-                    // Start pull service
+
+                    // Start pull service，该类主要通过长拉取模式，向broker拉取消息
                     this.pullMessageService.start();
-                    // Start rebalance service
+                    // Start rebalance service，改类主要定时更新本地缓存中的集群信息，包括目前可消费队列，集群中的订阅数据信息及broker数据信息等
                     this.rebalanceService.start();
                     // Start push service
                     this.defaultMQProducer.getDefaultMQProducerImpl().start(false);
@@ -280,6 +285,7 @@ public class MQClientInstance {
             }
         }, 10, this.clientConfig.getPollNameServerInteval(), TimeUnit.MILLISECONDS);
 
+        //每30 秒执行一次
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
@@ -697,19 +703,34 @@ public class MQClientInstance {
     private HeartbeatData prepareHeartbeatData() {
         HeartbeatData heartbeatData = new HeartbeatData();
 
-        // clientID
+        // clientID =  address + "@" + instanceName +  "@" + unitName(if unitName != null)
         heartbeatData.setClientID(this.clientId);
 
+        //一个 网络通信 MQClientInstance实例(mQClientFactory)，可以被多个Consumer客户端实例共用
+        //由consumerTable管理 Consumer客户端实现类，
+        // key(String)为 ConsumerGroup,
+        // value(MQConsumerInner)为具体的客户端实现类，即MQConsumerInner的子类，(PUSH->DefaultMQPushConsumerImpl,pull->DefaultMQPullConsumerImpl)
         // Consumer
         for (Map.Entry<String, MQConsumerInner> entry : this.consumerTable.entrySet()) {
             MQConsumerInner impl = entry.getValue();
             if (impl != null) {
                 ConsumerData consumerData = new ConsumerData();
+                //客户端指定的GroupName
                 consumerData.setGroupName(impl.groupName());
+
+                //PULL OR PUSH
                 consumerData.setConsumeType(impl.consumeType());
+
+                //CLUSTERING OR  BROADCASTING
                 consumerData.setMessageModel(impl.messageModel());
+
+                //消费进度
                 consumerData.setConsumeFromWhere(impl.consumeFromWhere());
+
+                //消费者订阅信息
                 consumerData.getSubscriptionDataSet().addAll(impl.subscriptions());
+
+                //impl.isUnitMode() default value:false
                 consumerData.setUnitMode(impl.isUnitMode());
 
                 heartbeatData.getConsumerDataSet().add(consumerData);

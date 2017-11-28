@@ -69,10 +69,10 @@ public class ClientManageProcessor implements NettyRequestProcessor {
         RemotingCommand response = RemotingCommand.createResponseCommand(null);
         HeartbeatData heartbeatData = HeartbeatData.decode(request.getBody(), HeartbeatData.class);
         ClientChannelInfo clientChannelInfo = new ClientChannelInfo(
-            ctx.channel(),
-            heartbeatData.getClientID(),
-            request.getLanguage(),
-            request.getVersion()
+            ctx.channel(), // 消费者客户端 网络通讯实例  mQClientFactory 所对应的channel
+            heartbeatData.getClientID(),// clientID =  address + "@" + instanceName +  "@" + unitName(if unitName != null)
+            request.getLanguage(), //java
+            request.getVersion()   //default 0
         );
 
         for (ConsumerData data : heartbeatData.getConsumerDataSet()) {
@@ -81,8 +81,11 @@ public class ClientManageProcessor implements NettyRequestProcessor {
                     data.getGroupName());
             boolean isNotifyConsumerIdsChangedEnable = true;
             if (null != subscriptionGroupConfig) {
+                //default value:true
                 isNotifyConsumerIdsChangedEnable = subscriptionGroupConfig.isNotifyConsumerIdsChangedEnable();
                 int topicSysFlag = 0;
+
+                //data.isUnitMode() default value:false
                 if (data.isUnitMode()) {
                     topicSysFlag = TopicSysFlag.buildSysFlag(false, true);
                 }

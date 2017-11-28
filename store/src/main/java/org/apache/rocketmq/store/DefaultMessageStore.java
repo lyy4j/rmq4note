@@ -405,11 +405,11 @@ public class DefaultMessageStore implements MessageStore {
 
     /**
      *
-     * @param group
+     * @param group 消费客户端所制定的ConsumeGroup
      * @param topic
-     * @param queueId
-     * @param offset
-     * @param maxMsgNums
+     * @param queueId 指定的消费队列
+     * @param offset 消息的逻辑位移
+     * @param maxMsgNums 拉取的最大消息数量，PULL模式的客户端由用户自行制定，PUSH模式一般使用默认值32
      * @param subscriptionData
      * @return
      */
@@ -440,8 +440,9 @@ public class DefaultMessageStore implements MessageStore {
         //通过topic和queueId找到指定消费的ConsumeQueue
         ConsumeQueue consumeQueue = findConsumeQueue(topic, queueId);
         if (consumeQueue != null) {
-            //
+            //逻辑消费队列目前最小的【逻辑位移索引】
             minOffset = consumeQueue.getMinOffsetInQueue();
+            //逻辑消费队列目前最大的【逻辑位移索引】
             maxOffset = consumeQueue.getMaxOffsetInQueue();
 
 
@@ -463,7 +464,7 @@ public class DefaultMessageStore implements MessageStore {
                     nextBeginOffset = nextOffsetCorrection(offset, maxOffset);
                 }
             } else {
-                //获取该索引位置之后的消息字节，这里有可能获取多个  位置索引消息（20字节一个）
+                //获取该索引位置之后的【逻辑位移索引】字节，这里有可能获取多个  【逻辑位移索引】（20字节一个）
                 SelectMappedBufferResult bufferConsumeQueue = consumeQueue.getIndexBuffer(offset);
                 if (bufferConsumeQueue != null) {
                     try {
@@ -476,16 +477,19 @@ public class DefaultMessageStore implements MessageStore {
                         final int maxFilterMessageCount = 16000;
                         //default:true
                         final boolean diskFallRecorded = this.messageStoreConfig.isDiskFallRecorded();
+
+                        //start rolling get 【逻辑位移索引】
                         for (; i < bufferConsumeQueue.getSize() && i < maxFilterMessageCount; i += ConsumeQueue.CQ_STORE_UNIT_SIZE) {
-                            long offsetPy = bufferConsumeQueue.getByteBuffer().getLong();
-                            int sizePy = bufferConsumeQueue.getByteBuffer().getInt();
-                            long tagsCode = bufferConsumeQueue.getByteBuffer().getLong();
+                            //读取完整的【逻辑位移索引】内容
+                            long offsetPy = bufferConsumeQueue.getByteBuffer().getLong(); //业务消息的开始  物理存储位移
+                            int sizePy = bufferConsumeQueue.getByteBuffer().getInt(); //业务消息的实际大小
+                            long tagsCode = bufferConsumeQueue.getByteBuffer().getLong(); //业务消息的 标识hash值
 
                             //已经获取的最大的具体消息的物理位移
                             maxPhyOffsetPulling = offsetPy;
 
                             if (nextPhyFileStartOffset != Long.MIN_VALUE) {
-                                if (offsetPy < nextPhyFileStartOffset)
+                                if (offsetPy < nextPhyFileStartOffset) //说明该逻辑位移不完整，跳过
                                     continue;
                             }
 
@@ -493,6 +497,7 @@ public class DefaultMessageStore implements MessageStore {
                             //总内存的40%，则表明该消息时在磁盘中
                             boolean isInDisk = checkInDiskByCommitOffset(offsetPy, maxOffsetPy);
 
+                            //该逻辑判断循环内，该条消息是否达到了批次满的条件
                             if (this.isTheBatchFull(sizePy, maxMsgNums, getResult.getBufferTotalSize(), getResult.getMessageCount(),
                                 isInDisk)) {
                                 break;
@@ -521,7 +526,7 @@ public class DefaultMessageStore implements MessageStore {
                                     log.debug("message type not matched, client: " + subscriptionData + " server: " + tagsCode);
                                 }
                             }
-                        }
+                        } //end for
 
                         //记录消费进度，即当前消费的消息与缓存commit最大的消息的物理差值
                         if (diskFallRecorded) {
@@ -531,17 +536,20 @@ public class DefaultMessageStore implements MessageStore {
 
                         nextBeginOffset = offset + (i / ConsumeQueue.CQ_STORE_UNIT_SIZE);
 
-                        //
+                        //记录目前的消费进度差值
                         long diff = maxOffsetPy - maxPhyOffsetPulling;
+
                         //系统总存储的40%  accessMessageInMemoryMaxRatio = 40，可以配置
-                        long memory = (long) (StoreUtil.TOTAL_PHYSICAL_MEMORY_SIZE
-                            * (this.messageStoreConfig.getAccessMessageInMemoryMaxRatio() / 100.0));
+                        long memory = (long) (StoreUtil.TOTAL_PHYSICAL_MEMORY_SIZE * (this.messageStoreConfig.getAccessMessageInMemoryMaxRatio() / 100.0));
+                        //换言之，如果目前的消费进度差值  超过40%，则建议消费者端下次拉取的目标为slave
                         getResult.setSuggestPullingFromSlave(diff > memory);
                     } finally {
 
                         bufferConsumeQueue.release();
                     }
                 } else {
+
+                    //如果该索引文件找不到相对应的【逻辑位移索引】字节内容，则滚动到下一个索引文件的的开始位置所对应的逻辑位移
                     status = GetMessageStatus.OFFSET_FOUND_NULL;
                     nextBeginOffset = nextOffsetCorrection(offset, consumeQueue.rollNextFile(offset));
                     log.warn("consumer request topic: " + topic + "offset: " + offset + " minOffset: " + minOffset + " maxOffset: "
@@ -549,6 +557,7 @@ public class DefaultMessageStore implements MessageStore {
                 }
             }
         } else {
+            //找不到对应的消费逻辑队列
             status = GetMessageStatus.NO_MATCHED_LOGIC_QUEUE;
             nextBeginOffset = nextOffsetCorrection(offset, 0);
         }
@@ -558,6 +567,8 @@ public class DefaultMessageStore implements MessageStore {
         } else {
             this.storeStatsService.getGetMessageTimesTotalMiss().incrementAndGet();
         }
+
+        //记录拉取消息的消耗时间
         long eclipseTime = this.getSystemClock().now() - beginTime;
         this.storeStatsService.setGetMessageEntireTimeMax(eclipseTime);
 
@@ -1107,6 +1118,12 @@ public class DefaultMessageStore implements MessageStore {
         if ((messageTotal + 1) >= maxMsgNums) {
             return true;
         }
+
+        /**
+         * 总结一下下面的判断逻辑：
+         * 如果isInDisk为true，说明目前消费进度不到系统总存储的60%，则批次量满的条件为：目前的传输字节量不能大于64k或者总条数不能大于8
+         * 否则，目前的传输字节量不能大于256k或者总条数不能大于32条
+         */
 
         if (isInDisk) {
             //如果当前已获取的总消息大小大于1024 * 64,则停止获取

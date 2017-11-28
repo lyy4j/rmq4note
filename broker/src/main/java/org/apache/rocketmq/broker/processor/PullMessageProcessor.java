@@ -100,6 +100,8 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             return response;
         }
 
+        //broker 启动时，委托BrokerController.SubscriptionGroupManager.init()，初始化SubscriptionGroupManager.subscriptionGroupTable，
+        //这个是broker内，默认的ConsumerGroup；而客户端指定的ConsumerGroup，在客户端启动时，以心跳包的形式向broker注册相关的SubscriptionGroupConfig信息
         SubscriptionGroupConfig subscriptionGroupConfig =
             this.brokerController.getSubscriptionGroupManager().findSubscriptionGroupConfig(requestHeader.getConsumerGroup());
         if (null == subscriptionGroupConfig) {
@@ -116,9 +118,9 @@ public class PullMessageProcessor implements NettyRequestProcessor {
 
         //延时标志，客户端设置为true
         final boolean hasSuspendFlag = PullSysFlag.hasSuspendFlag(requestHeader.getSysFlag());
-        //commmit标志，客户端设置为true
+        //commmit标志，如果为cluster模式，并且有消费消息，则为true；如果为broadcast 模式，则为false
         final boolean hasCommitOffsetFlag = PullSysFlag.hasCommitOffsetFlag(requestHeader.getSysFlag());
-        //订阅标志，客户端设置为true
+        //订阅标志，默认为false，如果客户端使用filterServer 的模式下，才为true
         final boolean hasSubscriptionFlag = PullSysFlag.hasSubscriptionFlag(requestHeader.getSysFlag());
 
         //客户端设置的default value:1000 * 15(15秒)
@@ -132,6 +134,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             return response;
         }
 
+        //校验topic的读权限
         if (!PermName.isReadable(topicConfig.getPerm())) {
             response.setCode(ResponseCode.NO_PERMISSION);
             response.setRemark("the topic[" + requestHeader.getTopic() + "] pulling message is forbidden");
@@ -332,7 +335,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             }
 
             switch (response.getCode()) {
-                case ResponseCode.SUCCESS:
+                case ResponseCode.SUCCESS: //拉取消息成功，则将结果返回给客户端。
 
                     //broker 的状态管理者，监控使用，消费数增加；
                     this.brokerController.getBrokerStatsManager().incGroupGetNums(requestHeader.getConsumerGroup(), requestHeader.getTopic(),
@@ -343,7 +346,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
 
                     this.brokerController.getBrokerStatsManager().incBrokerGetNums(getMessageResult.getMessageCount());
 
-
+                    //isTransferMsgByHeap() default:true,即消息是否从java 堆内存进行结果传输
                     if (this.brokerController.getBrokerConfig().isTransferMsgByHeap()) {
                         final long beginTimeMills = this.brokerController.getMessageStore().now();
                         final byte[] r = this.readGetMessageResult(getMessageResult, requestHeader.getConsumerGroup(), requestHeader.getTopic(), requestHeader.getQueueId());
@@ -353,6 +356,8 @@ public class PullMessageProcessor implements NettyRequestProcessor {
                         response.setBody(r);
                     } else {
                         try {
+                            //消息查询结果从堆外内存传输，即直接从pagecache 拷贝到 sendBuffer 中，省去了一次内核拷贝
+                            //底层实现依赖于nio 的FileChannel.transferTo(...)
                             FileRegion fileRegion =
                                 new ManyMessageTransfer(response.encodeHeader(getMessageResult.getBufferTotalSize()), getMessageResult);
                             channel.writeAndFlush(fileRegion).addListener(new ChannelFutureListener() {
@@ -373,7 +378,8 @@ public class PullMessageProcessor implements NettyRequestProcessor {
                     }
                     break;
                 case ResponseCode.PULL_NOT_FOUND:
-
+                    //brokerAllowSuspend 、hasSuspendFlag默认情况下均为true
+                    //说明该次请求需要被broker 挂起。
                     if (brokerAllowSuspend && hasSuspendFlag) {
                         long pollingTimeMills = suspendTimeoutMillisLong;
                         if (!this.brokerController.getBrokerConfig().isLongPollingEnable()) {

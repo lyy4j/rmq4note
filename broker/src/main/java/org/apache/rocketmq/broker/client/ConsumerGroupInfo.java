@@ -31,6 +31,11 @@ import org.apache.rocketmq.common.protocol.heartbeat.SubscriptionData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * 这里说一下ConsumerGroupInfo 的业务含义，就是，如果具有相同的ConsumerGroup name的消费者客户端实例，
+ * 那么，则希望这些实例均使用相同的ConsumeType、MessageModel以及ConsumeFromWhere，换言之，相同的ConsumerGroup,
+ * 代表一类相同的消费行为模式，只是根据不同的topic区分不同的消费业务逻辑
+ */
 public class ConsumerGroupInfo {
     private static final Logger log = LoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
     private final String groupName;

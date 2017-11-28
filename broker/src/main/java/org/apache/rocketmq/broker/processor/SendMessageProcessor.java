@@ -330,9 +330,12 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         MessageExtBrokerInner msgInner = new MessageExtBrokerInner();
         msgInner.setTopic(newTopic);
         msgInner.setBody(body);
+        //默认值为0，一般不指定
         msgInner.setFlag(requestHeader.getFlag());
         MessageAccessor.setProperties(msgInner, MessageDecoder.string2messageProperties(requestHeader.getProperties()));
         msgInner.setPropertiesString(requestHeader.getProperties());
+
+        //tags 值存放在requestHeader.getProperties()  PROPERTY_TAGS 属性里，将producer客户端指定的String 类型的tags 转为long 类型的hashCode。
         msgInner.setTagsCode(MessageExtBrokerInner.tagsString2tagsCode(topicConfig.getTopicFilterType(), msgInner.getTags()));
 
         msgInner.setQueueId(queueIdInt);

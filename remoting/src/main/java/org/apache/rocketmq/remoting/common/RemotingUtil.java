@@ -203,4 +203,8 @@ public class RemotingUtil {
         });
     }
 
+    public static void main(String[] args) {
+        System.out.println(getLocalAddress());
+    }
+
 }

@@ -21,12 +21,14 @@
 package org.apache.rocketmq.store;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+
 import org.junit.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class MappedFileTest {
-    private final String storeMessage = "Once, there was a chance for me!";
+    private final String storeMessage = "1h1h1h1";
 
     @Test
     public void testSelectMappedBuffer() throws IOException {
@@ -46,5 +48,22 @@ public class MappedFileTest {
         selectMappedBufferResult.release();
         assertThat(mappedFile.isCleanupOver()).isTrue();
         assertThat(mappedFile.destroy(1000)).isTrue();
+    }
+
+    @Test
+    public void testSize() throws Exception {
+
+        MappedFile mappedFile = new MappedFile("target/unit_test_store1/MappedFileTest/000", 1024 * 64);
+
+        ByteBuffer byteBuffer = ByteBuffer.allocate(20);
+        byteBuffer.putLong(1321313);
+        byteBuffer.putInt(2321313);
+        byteBuffer.putLong(3321313);
+
+        byte[] bytes = new byte[20];
+        byteBuffer.flip();
+        byteBuffer.get(bytes);
+        boolean result = mappedFile.appendMessage(bytes);
+        mappedFile.flush(0);
     }
 }
